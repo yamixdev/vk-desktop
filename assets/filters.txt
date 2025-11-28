@@ -1,0 +1,9 @@
+! VK Ad filters — загружаются adblocker.js
+*://*.ads*.vk.com/*
+*://*.ads*.vk.ru/*
+*://*.omnatax.com/*
+*://*.vkcdnservice.com/*/promo/*
+*://*.google-analytics.com/*
+*://*.yandex.ru/metrika/*
+*://*.doubleclick.net/*
+*://*.google.com/ads/*

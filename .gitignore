@@ -1,0 +1,7 @@
+node_modules
+dist
+release
+build
+.vscode
+.idea
+*.log
