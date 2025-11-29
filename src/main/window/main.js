@@ -19,18 +19,13 @@ export async function createMainWindow(configManager, targetDomain) {
     icon: path.join(getRootPath(), 'assets/icon.ico'),
     backgroundColor: '#19191a',
     show: false,
-    
-    // --- ВЕРНУЛИ СТАНДАРТНУЮ РАМКУ ---
     frame: true, 
-    // Убрали titleBarStyle и titleBarOverlay
-    // ---------------------------------
-
     webPreferences: {
       preload: resolvePath('../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: backgroundThrottling,
-      spellcheck: false,
+      spellcheck: true, // Включена проверка орфографии
       sandbox: true
     }
   });
@@ -38,10 +33,39 @@ export async function createMainWindow(configManager, targetDomain) {
   if (state.isMaximized) win.maximize();
 
   win.webContents.setUserAgent(USER_AGENT);
-  
-  // Убираем старое меню (чтобы не двоилось), оставим только если создадим через Menu.setApplicationMenu
   win.setMenuBarVisibility(true); 
 
+  // --- ЛОГИКА ОКОН (Все ссылки в одном окне) ---
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const urlObj = new URL(url);
+    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
+    
+    if (isTrusted) {
+        win.loadURL(url);
+        return { action: 'deny' };
+    }
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const urlObj = new URL(url);
+    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
+    if (!isTrusted && url !== win.webContents.getURL()) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // --- EKRAN "NET INTERNETA" ---
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      if (errorCode === -3) return; 
+      console.log('[Window] Load failed:', errorDescription);
+      const html = `<html><head><meta charset="utf-8"><style>body{background:#19191a;color:#e1e3e6;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;user-select:none;margin:0}h2{margin-bottom:10px}p{color:#828282;margin-bottom:20px}.btn{padding:10px 20px;background:#e1e3e6;color:#19191a;border:none;border-radius:8px;cursor:pointer;font-weight:bold;transition:opacity 0.2s}.btn:hover{opacity:0.8}</style></head><body><h2>Нет соединения</h2><p>Проверьте подключение к интернету.</p><button class="btn" onclick="location.reload()">Попробовать снова</button><script>setInterval(()=>{if(navigator.onLine)location.reload()},5000)</script></body></html>`;
+      win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html).toString('base64')}`);
+  });
+
+  // Загрузки
   win.webContents.session.on('will-download', (event, item, webContents) => {
       item.setSaveDialogOptions({ title: 'Сохранить файл', defaultPath: item.getFilename() });
       item.on('updated', (event, state) => {
@@ -56,23 +80,7 @@ export async function createMainWindow(configManager, targetDomain) {
     cb(['notifications', 'media', 'fullscreen', 'download'].includes(p));
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    const urlObj = new URL(url);
-    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
-    if (isTrusted) return { action: 'allow' };
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  win.webContents.on('will-navigate', (event, url) => {
-    const urlObj = new URL(url);
-    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
-    if (!isTrusted && url !== win.webContents.getURL()) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
-  });
-
+  // Taskbar кнопки
   try {
       const asset = (f) => path.join(getRootPath(), 'assets', f);
       win.setThumbarButtons([
@@ -89,7 +97,6 @@ export async function createMainWindow(configManager, targetDomain) {
       if (args.includes('--section=music')) url += '/music';
       else if (args.includes('--section=im')) url += '/im';
       else if (args.includes('--section=feed')) url += '/feed';
-
       console.log(`[Window] Loading: ${url}`);
       await win.loadURL(url);
     } catch (e) {
@@ -100,18 +107,12 @@ export async function createMainWindow(configManager, targetDomain) {
   loadContent();
 
   win.once('ready-to-show', () => {
-    if (!win.isDestroyed()) {
-        win.show();
-        win.focus();
-    }
+    if (!win.isDestroyed()) { win.show(); win.focus(); }
   });
 
   win.on('close', (e) => {
     if (app.isQuitting) return; 
-    if (configManager.get().minimizeToTray) {
-      e.preventDefault();
-      win.hide();
-    }
+    if (configManager.get().minimizeToTray) { e.preventDefault(); win.hide(); }
   });
 
   const saveState = () => {

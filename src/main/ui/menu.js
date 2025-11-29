@@ -1,11 +1,11 @@
 import { Menu, shell, app, dialog } from 'electron';
-import { manualCheck } from '../updater.js'; // Импорт проверки обновлений
+import { manualCheck } from '../updater.js'; 
 
 export function createApplicationMenu(mainWindow, configManager) {
   const config = configManager.get();
 
   const template = [
-    // 1. ФАЙЛ И НАСТРОЙКИ
+    // 1. ФАЙЛ
     {
       label: 'Файл',
       submenu: [
@@ -23,12 +23,11 @@ export function createApplicationMenu(mainWindow, configManager) {
                     type: 'warning',
                     title: 'Требуется Discord',
                     message: 'Функция транслирует музыку в статус Discord.',
-                    detail: 'Если Discord не запущен, статус работать не будет. Включить?',
                     buttons: ['Включить', 'Отмена'],
                     cancelId: 1
                   });
                   if (response === 1) {
-                    createApplicationMenu(mainWindow, configManager); // Возвращаем галочку назад
+                    createApplicationMenu(mainWindow, configManager);
                     return;
                   }
                 }
@@ -86,7 +85,7 @@ export function createApplicationMenu(mainWindow, configManager) {
       ]
     },
 
-    // 2. ПРАВКА (Важно для Ctrl+C / Ctrl+V)
+    // 2. ПРАВКА
     {
       label: 'Правка',
       submenu: [
@@ -100,24 +99,32 @@ export function createApplicationMenu(mainWindow, configManager) {
       ]
     },
 
-    // 3. НАВИГАЦИЯ
+    // 3. НАВИГАЦИЯ (ИСПРАВЛЕНО ЗДЕСЬ)
     {
       label: 'Навигация',
       submenu: [
         {
           label: 'Назад',
           accelerator: 'Alt+Left',
-          click: () => mainWindow.webContents.canGoBack() && mainWindow.webContents.goBack()
+          click: () => {
+              if (mainWindow.webContents.navigationHistory.canGoBack()) {
+                  mainWindow.webContents.navigationHistory.goBack();
+              }
+          }
         },
         {
           label: 'Вперёд',
           accelerator: 'Alt+Right',
-          click: () => mainWindow.webContents.canGoForward() && mainWindow.webContents.goForward()
+          click: () => {
+              if (mainWindow.webContents.navigationHistory.canGoForward()) {
+                  mainWindow.webContents.navigationHistory.goForward();
+              }
+          }
         },
         { type: 'separator' },
         {
           label: 'Перезагрузить страницу',
-          accelerator: 'F5', // Или Ctrl+R
+          accelerator: 'F5', 
           click: () => mainWindow.webContents.reload()
         },
         {
@@ -127,7 +134,7 @@ export function createApplicationMenu(mainWindow, configManager) {
         },
         { type: 'separator' },
         {
-          label: 'На главную (Лента)',
+          label: 'На главную',
           accelerator: 'Ctrl+H',
           click: () => mainWindow.loadURL(`https://${config.domain}`)
         }
@@ -152,11 +159,25 @@ export function createApplicationMenu(mainWindow, configManager) {
       submenu: [
         {
           label: 'Проверить обновления...',
-          click: () => manualCheck(mainWindow) // Вызываем функцию из updater.js
+          click: () => manualCheck(mainWindow) 
         },
         {
-          label: 'Открыть GitHub',
-          click: () => shell.openExternal('https://github.com/YamixDev/vk-desktop')
+          label: 'Очистить кеш и перезагрузить',
+          click: async () => {
+              const { response } = await dialog.showMessageBox(mainWindow, {
+                  type: 'question',
+                  buttons: ['Очистить', 'Отмена'],
+                  title: 'Сброс кеша',
+                  message: 'Это исправит проблемы с загрузкой картинок и скриптов.',
+                  detail: 'Вам придется заново войти в аккаунт VK.'
+              });
+              
+              if (response === 0) {
+                  await mainWindow.webContents.session.clearCache();
+                  await mainWindow.webContents.session.clearStorageData();
+                  mainWindow.reload();
+              }
+          }
         },
         { type: 'separator' },
         {

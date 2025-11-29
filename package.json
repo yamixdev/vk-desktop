@@ -1,9 +1,9 @@
 {
   "name": "vk-desktop",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "main": "src/main/index.js",
-  "description": "Advanced VK Desktop Client",
+  "description": "VK Desktop",
   "author": "YamixDev",
   "repository": {
     "type": "git",

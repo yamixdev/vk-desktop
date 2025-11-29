@@ -7,10 +7,13 @@ import { updateTray } from './ui/tray.js';
 import { setupAdBlock } from './security/adblocker.js';
 import { initAutoUpdater } from './updater.js';
 import { enableRPC, disableRPC, updateActivity } from './integrations/discord.js';
-import { registerMediaKeys, unregisterMediaKeys } from './integrations/mediaKeys.js';
 import { getOptimalDomain } from './network/resolver.js';
 import { setupCSP } from './security/csp.js'; 
 import { setupContextMenu } from './ui/contextMenu.js';
+
+// 1. ВАЖНО: Устанавливаем ID, чтобы в таскбаре было имя VK Desktop, а не Electron
+const APP_ID = 'com.yamixdev.vkdesktop';
+app.setAppUserModelId(APP_ID);
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -18,6 +21,7 @@ if (!gotLock) { app.quit(); process.exit(0); }
 let mainWindow = null;
 let configManager = null;
 
+// Флаги оптимизации
 app.commandLine.appendSwitch('disable-site-isolation-trials');
 app.commandLine.appendSwitch('enable-javascript-harmony');
 app.commandLine.appendSwitch('enable-future-v8-vm-features');
@@ -34,36 +38,14 @@ async function bootstrap() {
       configManager = new ConfigManager(app.getPath('userData'));
       const config = await configManager.load();
 
-      // --- JUMP LISTS (Задачи в панели задач Windows) ---
+      // Jump Lists (Задачи в таскбаре)
       if (process.platform === 'win32') {
           app.setUserTasks([
-              {
-                  program: process.execPath,
-                  arguments: '--section=music',
-                  iconPath: process.execPath,
-                  iconIndex: 0,
-                  title: 'Моя музыка',
-                  description: 'Открыть раздел музыки'
-              },
-              {
-                  program: process.execPath,
-                  arguments: '--section=im',
-                  iconPath: process.execPath,
-                  iconIndex: 0,
-                  title: 'Сообщения',
-                  description: 'Открыть мессенджер'
-              },
-              {
-                  program: process.execPath,
-                  arguments: '--section=feed',
-                  iconPath: process.execPath,
-                  iconIndex: 0,
-                  title: 'Новости',
-                  description: 'Открыть ленту'
-              }
+              { program: process.execPath, arguments: '--section=music', iconPath: process.execPath, iconIndex: 0, title: 'Моя музыка', description: 'Открыть раздел музыки' },
+              { program: process.execPath, arguments: '--section=im', iconPath: process.execPath, iconIndex: 0, title: 'Сообщения', description: 'Открыть мессенджер' },
+              { program: process.execPath, arguments: '--section=feed', iconPath: process.execPath, iconIndex: 0, title: 'Новости', description: 'Открыть ленту' }
           ]);
       }
-      // ------------------------------------------------
 
       let targetDomain = config.domain || 'vk.com';
       if (targetDomain === 'vk.ru' || targetDomain === 'vk.com') {
@@ -73,8 +55,7 @@ async function bootstrap() {
             targetDomain = await Promise.race([domainPromise, timeoutPromise]);
           } catch (e) { targetDomain = 'vk.com'; }
       }
-      console.log(`[App] Target domain: ${targetDomain}`);
-
+      
       mainWindow = await createMainWindow(configManager, targetDomain);
 
       if (config.enableAdBlock) setupAdBlock(mainWindow.webContents.session);
@@ -83,11 +64,11 @@ async function bootstrap() {
       setupContextMenu(mainWindow);
       updateTray(mainWindow, configManager);
       createApplicationMenu(mainWindow, configManager);
-      registerMediaKeys(mainWindow);
       
       if (config.enableDiscord) enableRPC();
       initAutoUpdater(mainWindow);
 
+      // --- IPC HANDLERS ---
       ipcMain.on('rpc:update', (event, data) => {
         if (configManager.get().enableDiscord) updateActivity(data);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -125,8 +106,6 @@ async function bootstrap() {
         }
       });
 
-      console.log('[App] Ready!');
-
   } catch (criticalError) {
       console.error('[App] ERROR:', criticalError);
       if (!mainWindow && configManager) {
@@ -136,13 +115,26 @@ async function bootstrap() {
 }
 
 app.whenReady().then(bootstrap);
-app.on('will-quit', () => { unregisterMediaKeys(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!mainWindow) bootstrap(); else mainWindow.show(); });
-app.on('second-instance', () => {
+
+// 2. ВАЖНО: Обработка нажатия на Jump List, когда программа УЖЕ запущена
+app.on('second-instance', (event, commandLine, workingDirectory) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
+
+    // Парсим аргументы от второй копии
+    const domain = configManager ? configManager.get().domain : 'vk.com';
+    const args = commandLine; // Массив аргументов
+
+    if (args.includes('--section=music')) {
+        mainWindow.loadURL(`https://${domain}/music`);
+    } else if (args.includes('--section=im')) {
+        mainWindow.loadURL(`https://${domain}/im`);
+    } else if (args.includes('--section=feed')) {
+        mainWindow.loadURL(`https://${domain}/feed`);
+    }
   }
 });
