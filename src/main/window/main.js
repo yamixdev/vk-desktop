@@ -57,7 +57,7 @@ export async function createMainWindow(configManager, targetDomain) {
     }
   });
 
-  // --- EKRAN "NET INTERNETA" ---
+  // --- Экран "NET INTERNETA XDDDDDDDDD" ---
   win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
       if (errorCode === -3) return; 
       console.log('[Window] Load failed:', errorDescription);

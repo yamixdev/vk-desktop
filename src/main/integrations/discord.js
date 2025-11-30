@@ -193,7 +193,6 @@ class DiscordManager {
             activity.endTimestamp = this.rpcState.startTimestamp + (duration * 1000);
         }
     } 
-    // Внимание: Блок else { activity.startTimestamp = ... } удален.
     // При паузе время не отправляется, чтобы у друзей не показывало 0:00 или бред.
 
     // Хеширование для защиты от спама

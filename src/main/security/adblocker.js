@@ -19,7 +19,7 @@ const BLOCK_PATTERNS = [
   '*.vk.com/ads_rotate.php*',
   '*.vk.com/rtrg*',
   
-  // Яндекс метрика (тяжелая)
+  // Яндекс метрика 
   '*.an.yandex.ru/*',
   '*.mc.yandex.ru/*',
   '*.yandex.ru/ads/*',

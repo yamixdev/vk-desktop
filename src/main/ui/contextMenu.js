@@ -90,7 +90,7 @@ export function setupContextMenu(mainWindow) {
         // Разделитель
         if (menuTemplate.length > 0) menuTemplate.push({ type: 'separator' });
 
-        // 7. КОД (Оставил на всякий случай, если удалишь - не страшно)
+        // 7. КОД (Оставил на всякий случай, вдруг кому-то нужно)
         menuTemplate.push({
             label: 'Просмотреть код',
             click: () => mainWindow.webContents.inspectElement(params.x, params.y)

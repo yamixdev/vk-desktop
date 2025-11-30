@@ -11,7 +11,7 @@ import { getOptimalDomain } from './network/resolver.js';
 import { setupCSP } from './security/csp.js'; 
 import { setupContextMenu } from './ui/contextMenu.js';
 
-// 1. ВАЖНО: Устанавливаем ID, чтобы в таскбаре было имя VK Desktop, а не Electron
+// 1. ID приложения (Важно для группировки окон в Windows)
 const APP_ID = 'com.yamixdev.vkdesktop';
 app.setAppUserModelId(APP_ID);
 
@@ -21,15 +21,24 @@ if (!gotLock) { app.quit(); process.exit(0); }
 let mainWindow = null;
 let configManager = null;
 
-// Флаги оптимизации
-app.commandLine.appendSwitch('disable-site-isolation-trials');
-app.commandLine.appendSwitch('enable-javascript-harmony');
-app.commandLine.appendSwitch('enable-future-v8-vm-features');
+// --- ФЛАГИ ОПТИМИЗАЦИИ (Memory Fixes) ---
+
+// 1. Снижаем лимит "Кучи" (Heap) до 1.5 ГБ (было 4 ГБ).
+// Это заставит V8 чаще запускать очистку мусора, не накапливая гигабайты.
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
+
+// 2. Оптимизация GPU и рендеринга
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
+// 3. Отключаем изоляцию сайтов (экономит 10-20% памяти на процессе)
+// Безопасно, так как мы открываем только один доверенный сайт.
+app.commandLine.appendSwitch('disable-site-isolation-trials');
+
+// 4. УБРАН флаг 'disable-renderer-backgrounding'.
+// Теперь, если приложение свернуто и музыка НЕ играет, оно будет экономить ресурсы.
+
 app.commandLine.appendSwitch('ignore-certificate-errors');
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
 
 async function bootstrap() {
   console.log('[App] Initializing...');
@@ -106,6 +115,14 @@ async function bootstrap() {
         }
       });
 
+      // --- Мягкая очистка памяти (Экспериментально) ---
+      // Раз в 20 минут намекаем движку, что можно почистить мусор
+      setInterval(() => {
+        if (global.gc) {
+            try { global.gc(); } catch (e) {}
+        }
+      }, 1000 * 60 * 20);
+
   } catch (criticalError) {
       console.error('[App] ERROR:', criticalError);
       if (!mainWindow && configManager) {
@@ -118,16 +135,15 @@ app.whenReady().then(bootstrap);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!mainWindow) bootstrap(); else mainWindow.show(); });
 
-// 2. ВАЖНО: Обработка нажатия на Jump List, когда программа УЖЕ запущена
+// Обработка повторного запуска (Jump Lists)
 app.on('second-instance', (event, commandLine, workingDirectory) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
 
-    // Парсим аргументы от второй копии
     const domain = configManager ? configManager.get().domain : 'vk.com';
-    const args = commandLine; // Массив аргументов
+    const args = commandLine;
 
     if (args.includes('--section=music')) {
         mainWindow.loadURL(`https://${domain}/music`);
