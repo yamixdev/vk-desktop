@@ -40,10 +40,7 @@
     ],
     "win": {
       "icon": "assets/icon.ico",
-      "target": "nsis",
-      "publish": [
-        "github"
-      ]
+      "target": "nsis"
     },
     "linux": {
       "target": "AppImage",
