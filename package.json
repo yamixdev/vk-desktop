@@ -45,6 +45,13 @@
         "github"
       ]
     },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Network",
+      "synopsis": "VK Desktop Client",
+      "maintainer": "YamixDev"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
