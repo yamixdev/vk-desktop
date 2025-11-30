@@ -16,7 +16,8 @@ jobs:
 
       - run: npm install
 
-      - run: npx electron-builder --linux --x64 -c.publish=never
+      # ИСПРАВЛЕНО ЗДЕСЬ: используем -p never вместо -c.publish=never
+      - run: npx electron-builder --linux --x64 -p never
 
       - uses: actions/upload-artifact@v4
         with:
