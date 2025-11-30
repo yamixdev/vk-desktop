@@ -1,0 +1,44 @@
+{
+  "name": "vk-web",
+  "version": "1.1.0",
+  "description": "Безопасный и производительный VK Desktop Wrapper",
+  "main": "src/main.js",
+  "author": "YamixDev",
+  "license": "MIT",
+  "scripts": {
+    "start": "electronmon .",
+    "start:prod": "electron .",
+    "build": "electron-builder --win",
+    "build:clean": "rimraf dist && npm run build"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^24.13.3",
+    "electronmon": "^2.0.2",
+    "rimraf": "^5.0.5"
+  },
+  "build": {
+    "appId": "com.yamixdev.vkweb",
+    "productName": "ВКонтакте",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

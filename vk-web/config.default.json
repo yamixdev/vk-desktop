@@ -1,0 +1,10 @@
+{
+  "profile": "balanced",
+  "smoothScrolling": true,
+  "domain": "vk.ru",
+  "partition": "persist:vk",
+  "minimizeToTray": true,
+  "blockGifs": true,
+  "maxConcurrentMedia": 2,
+  "enableAdBlock": true
+}

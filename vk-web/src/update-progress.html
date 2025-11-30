@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>Загрузка обновления</title>
+  <style>
+    /* ваши стили */
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <p>Загрузка обновления...</p>
+  <p id="progress">0%</p>
+  <script>
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.on('download-progress', (event, progress) => {
+      document.getElementById('progress').textContent = `${progress.percent.toFixed(1)}%`;
+    });
+  </script>
+</body>
+</html>
