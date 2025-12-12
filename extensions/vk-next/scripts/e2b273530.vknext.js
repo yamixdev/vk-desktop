@@ -1,0 +1,21 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[8238],{52079:(e,t,n)=>{e.exports=n(97273)},59914:(e,t,n)=>{n.d(t,{k:()=>o});var r=n(96540);const{useRef:u}=r;function o(e){const t=u();return n=>{const r=e(n);return function(e,t){if(Object.is(e,t))return!0;if("object"!=typeof e||null===e||"object"!=typeof t||null===t)return!1;if(e instanceof Map&&t instanceof Map){if(e.size!==t.size)return!1;for(const[n,r]of e)if(!Object.is(r,t.get(n)))return!1;return!0}if(e instanceof Set&&t instanceof Set){if(e.size!==t.size)return!1;for(const n of e)if(!t.has(n))return!1;return!0}const n=Object.keys(e);if(n.length!==Object.keys(t).length)return!1;for(const r of n)if(!Object.prototype.hasOwnProperty.call(t,r)||!Object.is(e[r],t[r]))return!1;return!0}(t.current,r)?t.current:t.current=r}}},72257:(e,t,n)=>{e.exports=n(72518)},72518:(e,t,n)=>{
+/**
+ * @license React
+ * use-sync-external-store-shim.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+var r=n(96540);var u="function"==typeof Object.is?Object.is:function(e,t){return e===t&&(0!==e||1/e==1/t)||e!=e&&t!=t},o=r.useState,s=r.useEffect,i=r.useLayoutEffect,c=r.useDebugValue;function a(e){var t=e.getSnapshot;e=e.value;try{var n=t();return!u(e,n)}catch(e){return!0}}var f="undefined"==typeof window||void 0===window.document||void 0===window.document.createElement?function(e,t){return t()}:function(e,t){var n=t(),r=o({inst:{value:n,getSnapshot:t}}),u=r[0].inst,f=r[1];return i(function(){u.value=n,u.getSnapshot=t,a(u)&&f({inst:u})},[e,n,t]),s(function(){return a(u)&&f({inst:u}),e(function(){a(u)&&f({inst:u})})},[e]),c(n),n};t.useSyncExternalStore=void 0!==r.useSyncExternalStore?r.useSyncExternalStore:f},81621:(e,t,n)=>{n.d(t,{vt:()=>b});const r=e=>{let t;const n=new Set,r=(e,r)=>{const u="function"==typeof e?e(t):e;if(!Object.is(u,t)){const e=t;t=(null!=r?r:"object"!=typeof u||null===u)?u:Object.assign({},t,u),n.forEach(n=>n(t,e))}},u=()=>t,o={setState:r,getState:u,getInitialState:()=>s,subscribe:e=>(n.add(e),()=>n.delete(e)),destroy:()=>{console.warn("[DEPRECATED] The `destroy` method will be unsupported in a future version. Instead use unsubscribe function returned by subscribe. Everything will be garbage-collected if store is garbage-collected."),n.clear()}},s=t=e(r,u,o);return o},u=e=>e?r(e):r;var o=n(96540),s=n(52079);const{useDebugValue:i}=o,{useSyncExternalStoreWithSelector:c}=s;let a=!1;const f=e=>e;const l=e=>{"function"!=typeof e&&console.warn("[DEPRECATED] Passing a vanilla store will be unsupported in a future version. Instead use `import { useStore } from 'zustand'`.");const t="function"==typeof e?u(e):e,n=(e,n)=>function(e,t=f,n){n&&!a&&(console.warn("[DEPRECATED] Use `createWithEqualityFn` instead of `create` or use `useStoreWithEqualityFn` instead of `useStore`. They can be imported from 'zustand/traditional'. https://github.com/pmndrs/zustand/discussions/1937"),a=!0);const r=c(e.subscribe,e.getState,e.getServerState||e.getInitialState,t,n);return i(r),r}(t,e,n);return Object.assign(n,t),n},b=e=>e?l(e):l},97273:(e,t,n)=>{
+/**
+ * @license React
+ * use-sync-external-store-shim/with-selector.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+var r=n(96540),u=n(72257);var o="function"==typeof Object.is?Object.is:function(e,t){return e===t&&(0!==e||1/e==1/t)||e!=e&&t!=t},s=u.useSyncExternalStore,i=r.useRef,c=r.useEffect,a=r.useMemo,f=r.useDebugValue;t.useSyncExternalStoreWithSelector=function(e,t,n,r,u){var l=i(null);if(null===l.current){var b={hasValue:!1,value:null};l.current=b}else b=l.current;l=a(function(){function e(e){if(!c){if(c=!0,s=e,e=r(e),void 0!==u&&b.hasValue){var t=b.value;if(u(t,e))return i=t}return i=e}if(t=i,o(s,e))return t;var n=r(e);return void 0!==u&&u(t,n)?(s=e,t):(s=e,i=n)}var s,i,c=!1,a=void 0===n?null:n;return[function(){return e(t())},null===a?void 0:function(){return e(a())}]},[t,n,r,u]);var d=s(e,l[0],l[1]);return c(function(){b.hasValue=!0,b.value=d},[d]),f(d),d}}}]);

@@ -1,0 +1,1 @@
+﻿.CatalogBlock:has(>.CatalogBlock__subscription a[href*="/vk_pay_music"]),.CatalogBlock:has(>.CatalogBlock__subscription_ru),.CatalogSection:has(.audio_promo){display:none!important}

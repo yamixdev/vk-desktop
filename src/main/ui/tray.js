@@ -2,8 +2,17 @@ import { Tray, Menu, app, nativeImage } from 'electron';
 import path from 'path';
 import { getRootPath } from '../utils.js';
 
-let tray = null; // Глобальная переменная, чтобы GC не убил иконку
+/** @type {Tray|null} Глобальная переменная трея */
+let tray = null;
 
+/**
+ * Обновляет или создает системный трей
+ *
+ * @description Выполняется в Main Process
+ * @param {Electron.BrowserWindow} mainWindow - Главное окно приложения
+ * @param {import('../config/manager.js').default} configManager - Менеджер конфигурации
+ * @returns {Tray} Экземпляр трея
+ */
 export function updateTray(mainWindow, configManager) {
   // Если трей уже есть - обновляем только меню, не пересоздаем иконку (чтобы не мигала)
   // Но если она уничтожена (destroy), создаем заново.
@@ -61,5 +70,26 @@ export function updateTray(mainWindow, configManager) {
   ]);
 
   tray.setContextMenu(contextMenu);
+  return tray;
+}
+
+/**
+ * ИЗМЕНЕНО: Уничтожает трей и освобождает ресурсы
+ * Вызывается при выходе из приложения
+ * @returns {void}
+ */
+export function destroyTray() {
+  if (tray && !tray.isDestroyed()) {
+    tray.destroy();
+    console.log('[Tray] Destroyed');
+  }
+  tray = null;
+}
+
+/**
+ * Получает текущий экземпляр трея
+ * @returns {Tray|null}
+ */
+export function getTray() {
   return tray;
 }

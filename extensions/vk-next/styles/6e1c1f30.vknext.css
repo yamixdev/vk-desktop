@@ -1,0 +1,1 @@
+﻿.LeftMenuAppPromo,.LegalRecommendationsLink,.LegalRecommendationsLinkLeftMenuAuthorized,.WideSeparator.WideSeparator--legalRecommendationsLink,.WideSeparator:has(+.LeftMenuAppPromo),[class*=Spacing__root]:has(+ol #l_legal_recommendations),ol:has(>#l_legal_recommendations){display:none!important}

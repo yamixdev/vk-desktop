@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[3339],{83339:(e,a,p)=>{p.d(a,{default:()=>n});const n={sw_spy_online_app:["Última vez online com {appName}","Última vez online com {appName}"],sw_spy_offline_app:["Desconectado de {appName}","conectado offline com {appName}"]}}}]);

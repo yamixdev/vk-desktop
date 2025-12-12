@@ -1,0 +1,51 @@
+{
+   "action": {
+      "default_popup": "popup.html",
+      "default_title": "__MSG_popupTitle__"
+   },
+   "background": {
+      "service_worker": "scripts/a51d355e9.vknext.js"
+   },
+   "content_scripts": [ {
+      "css": [ "styles/ba10afe35.vknext.css" ],
+      "js": [ "scripts/d1176ad30.vknext.js" ],
+      "matches": [ "https://vk.com/*", "https://vk.ru/*", "https://vkvideo.ru/*", "https://vksport.vkvideo.ru/*" ],
+      "run_at": "document_start"
+   }, {
+      "js": [ "scripts/d02ae3a6a.vknext.js" ],
+      "matches": [ "https://oauth.vk.com/*", "https://login.vk.com/*", "https://oauth.vk.ru/*", "https://login.vk.ru/*" ],
+      "run_at": "document_start"
+   }, {
+      "all_frames": true,
+      "css": [ "styles/fc8bfbbd5.vknext.css" ],
+      "js": [ "scripts/7a0a04dc8.vknext.js" ],
+      "matches": [ "https://static.vk.com/*", "https://static.vk.ru/*", "https://connect.vk.com/*", "https://id.vk.com/*", "https://platform.vk.com/*", "https://connect.vk.ru/*", "https://id.vk.ru/*", "https://platform.vk.ru/*", "https://*.pages.vk-apps.com/*" ],
+      "run_at": "document_start"
+   } ],
+   "default_locale": "ru",
+   "description": "__MSG_extDescription__",
+   "homepage_url": "https://vknext.net",
+   "host_permissions": [ "https://*.vk.com/*", "https://*.vk.ru/*", "https://vkvideo.ru/*", "https://vksport.vkvideo.ru/*", "https://vknext.net/*", "https://api.telegram.org/*", "https://api.genius.com/*" ],
+   "icons": {
+      "128": "assets/icon128.png",
+      "16": "assets/icon16.png",
+      "24": "assets/icon24.png",
+      "300": "assets/icon300.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png"
+   },
+   "incognito": "split",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7oYnUmsIDzomklAK5MPlRrxPyKQiBCp9gSFRxo5N4XrmDyIJJN6RyD4qml6gLZ4jmp9bzLQB0ys87AvHaP4au2NhHtl04Brw6EFjyB+7aU44pOYBhnox8ZFqwFmxMKqzpB+HzNfqyuPB1kvAJnnTCa+uskZtrPy/qHXcS9dtuyTAP6TPd5Ds1CH4YnuBMHrX1Tcw837QEk08N5waHNXqQAwdyhHYwAZdRGbyQq+57XrokrsnP7qCFakXFPdpLlcxoeyLYsGDoKEXgPHFW5vwnPAWj28G/pWDzaUr14tdtDKex9uz1vugdnF6w9WXreqoGeWa0rzRZK1/YshKRS1eWQIDAQAB",
+   "manifest_version": 3,
+   "minimum_chrome_version": "105",
+   "name": "__MSG_extName__",
+   "optional_host_permissions": [ "https://*.pages.vk-apps.com/*", "https://*/*" ],
+   "permissions": [ "tabs", "unlimitedStorage", "storage", "declarativeNetRequest", "scripting", "downloads", "alarms", "notifications" ],
+   "short_name": "vknext",
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "14.6.3",
+   "web_accessible_resources": [ {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "*" ]
+   } ]
+}

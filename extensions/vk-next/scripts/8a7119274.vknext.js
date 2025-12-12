@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[5338],{5338:(e,t,a)=>{var o=a(40961);t.createRoot=o.createRoot,o.hydrateRoot}}]);

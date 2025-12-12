@@ -1,13 +1,20 @@
+/**
+ * Настройка заголовков безопасности для приложения
+ * @param {Electron.Session} session - Сессия Electron
+ */
 export function setupCSP(session) {
-  // Перехватываем заголовки ответов для улучшения совместимости и безопасности
+  // Перехватываем заголовки ответов для улучшения совместимости
   session.webRequest.onHeadersReceived((details, callback) => {
-    const responseHeaders = details.responseHeaders;
+    const responseHeaders = { ...details.responseHeaders };
 
-    // Иногда VK или рекламные скрипты шлют заголовки, блокирующие загрузку в Electron
-    // Удаляем их для стабильности
+    // Удаляем заголовки, которые могут мешать работе в Electron
     if (responseHeaders) {
-        delete responseHeaders['x-frame-options'];
-        delete responseHeaders['X-Frame-Options'];
+      // X-Frame-Options может блокировать загрузку страниц во фреймах
+      delete responseHeaders['x-frame-options'];
+      delete responseHeaders['X-Frame-Options'];
+      
+      // НЕ модифицируем CSP - пусть VK использует свой CSP
+      // Расширения Chrome работают в изолированном контексте и не зависят от CSP страницы
     }
 
     callback({
@@ -16,5 +23,5 @@ export function setupCSP(session) {
     });
   });
   
-  console.log('[Security] CSP Headers patched.');
+  console.log('[Security] Headers patched for Electron compatibility.');
 }

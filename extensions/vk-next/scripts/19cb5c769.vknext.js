@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[3415],{23415:(t,n,e)=>{e.d(n,{AU:()=>i,isColorWithStates:()=>o});function o(t){const n=t;return n&&"object"==typeof n&&"string"==typeof n.normal&&"string"==typeof n.hover&&"string"==typeof n.active}function i(t){return"function"==typeof t}}}]);

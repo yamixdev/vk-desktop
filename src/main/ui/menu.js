@@ -41,12 +41,6 @@ export function createApplicationMenu(mainWindow, configManager) {
               checked: config.minimizeToTray,
               click: () => configManager.update({ minimizeToTray: !config.minimizeToTray })
             },
-            {
-              label: 'Блокировка рекламы (нужен перезапуск)',
-              type: 'checkbox',
-              checked: config.enableAdBlock,
-              click: () => configManager.update({ enableAdBlock: !config.enableAdBlock })
-            },
             { type: 'separator' },
             {
               label: 'Режим производительности',
@@ -186,10 +180,9 @@ export function createApplicationMenu(mainWindow, configManager) {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'О программе',
-              message: 'VK Desktop Wrapper',
-              detail: `Версия: ${app.getVersion()}\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\n\nРазработано с ❤️ и для скорости.`,
-              buttons: ['OK'],
-              icon: null 
+              message: 'VK Desktop',
+              detail: `Версия: ${app.getVersion()}\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode.js: ${process.versions.node}\n\nРазработано с ❤️`,
+              buttons: ['OK']
             });
           }
         }

@@ -1,0 +1,1 @@
+﻿.side_bar{position:sticky!important;top:0!important}#layout_sidebar{position:sticky!important;top:calc(var(--spa-layout-header-height) + var(--vknext-sidebar-top-offset))!important}

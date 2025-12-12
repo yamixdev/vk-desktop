@@ -1,8 +1,16 @@
 import { BrowserWindow, shell, screen, app } from 'electron';
 import path from 'path';
 import { resolvePath, getRootPath } from '../utils.js';
-import { TRUSTED_DOMAINS, USER_AGENT } from '../../shared/constants.js';
+import { TRUSTED_DOMAINS, USER_AGENT, isTrustedDomain } from '../../shared/constants.js';
 
+/**
+ * Создает главное окно приложения VK Desktop
+ *
+ * @description Выполняется в Main Process
+ * @param {import('../config/manager.js').default} configManager - Менеджер конфигурации
+ * @param {string} targetDomain - Целевой домен (vk.ru или vk.com)
+ * @returns {Promise<BrowserWindow>}
+ */
 export async function createMainWindow(configManager, targetDomain) {
   const config = configManager.get();
   const state = config.windowState || {};
@@ -10,7 +18,32 @@ export async function createMainWindow(configManager, targetDomain) {
   const { width: sWidth, height: sHeight } = screen.getPrimaryDisplay().workAreaSize;
   const width = state.width || Math.round(sWidth * 0.8);
   const height = state.height || Math.round(sHeight * 0.9);
-  const backgroundThrottling = (config.profile === 'powersave');
+  
+  // Настройки производительности в зависимости от профиля
+  const profile = config.profile || 'balanced';
+  const performanceSettings = {
+    balanced: {
+      backgroundThrottling: true,  // Замедляем в фоне
+      paintWhenInitiallyHidden: true,
+      webgl: true,
+      hardwareAcceleration: true
+    },
+    performance: {
+      backgroundThrottling: false, // Не замедляем (для музыки в фоне)
+      paintWhenInitiallyHidden: true,
+      webgl: true,
+      hardwareAcceleration: true
+    },
+    powersave: {
+      backgroundThrottling: true,  // Сильно замедляем в фоне
+      paintWhenInitiallyHidden: false,
+      webgl: false, // Отключаем WebGL для экономии
+      hardwareAcceleration: true
+    }
+  };
+  
+  const settings = performanceSettings[profile] || performanceSettings.balanced;
+  console.log(`[Window] Performance profile: ${profile}`, settings);
 
   const win = new BrowserWindow({
     width, height,
@@ -19,14 +52,18 @@ export async function createMainWindow(configManager, targetDomain) {
     icon: path.join(getRootPath(), 'assets/icon.ico'),
     backgroundColor: '#19191a',
     show: false,
-    frame: true, 
+    frame: true,
     webPreferences: {
       preload: resolvePath('../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: backgroundThrottling,
-      spellcheck: true, // Включена проверка орфографии
-      sandbox: true
+      backgroundThrottling: settings.backgroundThrottling,
+      spellcheck: true,
+      sandbox: true,
+      webgl: settings.webgl,
+      // Отключаем лишние функции для экономии памяти
+      enableWebSQL: false,
+      v8CacheOptions: 'code' // Кэшируем скомпилированный код
     }
   });
 
@@ -36,24 +73,33 @@ export async function createMainWindow(configManager, targetDomain) {
   win.setMenuBarVisibility(true); 
 
   // --- ЛОГИКА ОКОН (Все ссылки в одном окне) ---
+  // ИЗМЕНЕНО: добавлена обработка ошибок при парсинге URL
   win.webContents.setWindowOpenHandler(({ url }) => {
-    const urlObj = new URL(url);
-    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
-    
-    if (isTrusted) {
+    try {
+      // Используем функцию isTrustedDomain из constants.js
+      if (isTrustedDomain(url)) {
         win.loadURL(url);
         return { action: 'deny' };
+      }
+      shell.openExternal(url);
+    } catch (error) {
+      console.warn('[Window] Invalid URL in setWindowOpenHandler:', url, error.message);
+      // При ошибке парсинга открываем внешне для безопасности
+      shell.openExternal(url).catch(() => {});
     }
-    shell.openExternal(url);
     return { action: 'deny' };
   });
 
   win.webContents.on('will-navigate', (event, url) => {
-    const urlObj = new URL(url);
-    const isTrusted = TRUSTED_DOMAINS.some(d => urlObj.hostname === d || urlObj.hostname.endsWith('.' + d));
-    if (!isTrusted && url !== win.webContents.getURL()) {
+    try {
+      // Используем функцию isTrustedDomain из constants.js
+      if (!isTrustedDomain(url) && url !== win.webContents.getURL()) {
+        event.preventDefault();
+        shell.openExternal(url);
+      }
+    } catch (error) {
+      console.warn('[Window] Invalid URL in will-navigate:', url, error.message);
       event.preventDefault();
-      shell.openExternal(url);
     }
   });
 
@@ -110,9 +156,85 @@ export async function createMainWindow(configManager, targetDomain) {
     if (!win.isDestroyed()) { win.show(); win.focus(); }
   });
 
+  // Таймер вынесен в общую область видимости для очистки
+  let resizeTimer = null;
+  
+  // === РЕЖИМ ЭФФЕКТИВНОСТИ ===
+  // Когда окно скрыто (в трее), снижаем нагрузку на систему
+  let isEfficiencyMode = false;
+  
+  const enableEfficiencyMode = () => {
+    if (isEfficiencyMode || win.isDestroyed()) return;
+    isEfficiencyMode = true;
+    
+    try {
+      // Снижаем частоту кадров когда в трее
+      win.webContents.setFrameRate(5);
+      
+      // Приостанавливаем некритичные фоновые задачи
+      win.webContents.setBackgroundThrottling(true);
+      
+      console.log('[Window] Efficiency mode enabled');
+    } catch (e) {
+      console.warn('[Window] Failed to enable efficiency mode:', e.message);
+    }
+  };
+  
+  const disableEfficiencyMode = () => {
+    if (!isEfficiencyMode || win.isDestroyed()) return;
+    isEfficiencyMode = false;
+    
+    try {
+      // Восстанавливаем нормальную частоту кадров
+      win.webContents.setFrameRate(60);
+      
+      // Восстанавливаем настройки throttling из профиля
+      const currentProfile = configManager.get().profile || 'balanced';
+      win.webContents.setBackgroundThrottling(currentProfile !== 'performance');
+      
+      console.log('[Window] Efficiency mode disabled');
+    } catch (e) {
+      console.warn('[Window] Failed to disable efficiency mode:', e.message);
+    }
+  };
+  
+  // Включаем режим эффективности когда окно скрыто
+  win.on('hide', () => {
+    // Даем небольшую задержку на случай быстрого show/hide
+    setTimeout(() => {
+      if (!win.isVisible() && !win.isDestroyed()) {
+        enableEfficiencyMode();
+      }
+    }, 1000);
+  });
+  
+  // Отключаем режим эффективности когда окно показано
+  win.on('show', disableEfficiencyMode);
+  win.on('focus', disableEfficiencyMode);
+  
+  // Также учитываем минимизацию
+  win.on('minimize', () => {
+    setTimeout(() => {
+      if (win.isMinimized() && !win.isDestroyed()) {
+        enableEfficiencyMode();
+      }
+    }, 2000);
+  });
+  
+  win.on('restore', disableEfficiencyMode);
+
   win.on('close', (e) => {
-    if (app.isQuitting) return; 
-    if (configManager.get().minimizeToTray) { e.preventDefault(); win.hide(); }
+    // Очищаем таймер при закрытии окна
+    if (resizeTimer) {
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    }
+    
+    if (app.isQuitting) return;
+    if (configManager.get().minimizeToTray) {
+      e.preventDefault();
+      win.hide();
+    }
   });
 
   const saveState = () => {
@@ -124,9 +246,23 @@ export async function createMainWindow(configManager, targetDomain) {
     }
   };
   
-  let resizeTimer;
-  win.on('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(saveState, 500); });
-  win.on('move', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(saveState, 500); });
+  win.on('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(saveState, 500);
+  });
+  
+  win.on('move', () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(saveState, 500);
+  });
+
+  // ИЗМЕНЕНО: очистка при уничтожении окна
+  win.on('closed', () => {
+    if (resizeTimer) {
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    }
+  });
 
   return win;
 }

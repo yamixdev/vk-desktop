@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[5560],{85560:(a,t,n)=>{n.d(t,{default:()=>c});var s=n(79384),e=n(52815);const c=async()=>{const a=await(0,e.A)(),t=(0,s.A)(a[0][1]),n=(0,s.A)(a[1][1]);return!!(107<=t&&t<=110&&107<=n&&n<=110)}}}]);

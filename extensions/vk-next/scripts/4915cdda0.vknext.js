@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[7248],{87248:(t,a,e)=>{e.r(a),e.d(a,{default:()=>l});const h="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",l=(t=5)=>{let a="";for(let e=0;e<t;e++)a+=h.charAt(Math.floor(62*Math.random()));return a}}}]);
