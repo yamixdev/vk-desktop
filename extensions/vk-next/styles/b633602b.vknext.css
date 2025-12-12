@@ -1,0 +1,1 @@
+﻿.post:not([id*=post-207165415]):has(.PostActivityCaption__cancel[onclick^="Feed.ignoreItem"]),.post:not([id*=post-207165415]):has(.PostActivityCaption__cancel[onclick^="window.Feed.ignoreItem"]){display:none!important;opacity:0!important;visibility:hidden!important}

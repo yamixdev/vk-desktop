@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[7386],{7386:(p,a,e)=>{e.d(a,{default:()=>s});const s={sw_spy_online_app:["{appName} арқылы желіге қосылды","{appName} арқылы желіге қосылды"],sw_spy_offline_app:["{appName} арқылы желіден шықты","{appName} арқылы желіден шықты"]}}}]);

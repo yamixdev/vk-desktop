@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[4144],{84144:(e,t,a)=>{a.r(t),a.d(t,{default:()=>r});var s=a(53778);class l extends s.default{constructor(){super("telegramStickers",{lifetime:1e4,defaultValue:[]})}async getPacks(){return[...await this.getStorage()]}}const r=new l}}]);

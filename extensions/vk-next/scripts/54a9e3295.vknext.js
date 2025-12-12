@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[8638],{88638:(p,a,e)=>{e.d(a,{default:()=>s});const s={sw_spy_online_app:["снова на связи с {appName}","снова на связи с {appName}"],sw_spy_offline_app:["больше не на связи с {appName}","больше не на связи с {appName}"]}}}]);

@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[695],{695:(e,c,h)=>{h.d(c,{U:()=>s});var k=h(50313);const s=()=>(0,k.A)("colorScheme")}}]);

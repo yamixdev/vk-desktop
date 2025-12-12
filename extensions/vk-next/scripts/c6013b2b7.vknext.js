@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[4053],{84053:(p,e,a)=>{a.d(e,{default:()=>n});const n={sw_spy_online_app:["pojawił się online z {appName}","pojawił się online z {appName}"],sw_spy_offline_app:["przeszedł w tryb offline z {appName}","przeszedł w tryb offline z {appName}"]}}}]);

@@ -1,0 +1,1 @@
+﻿.left_menu_nav_wrap{display:none!important}#layout_sidebar [class*=Footer__root]:has(>li:is(#l_blog,#l_developers,#l_ad,#l_vk_authors)),#layout_sidebar [class*=Spacing__root]:has(+[class*=Footer__root] li:is(#l_blog,#l_developers,#l_ad,#l_vk_authors)){display:none!important}
