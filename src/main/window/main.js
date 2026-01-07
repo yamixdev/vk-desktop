@@ -1,6 +1,6 @@
 import { BrowserWindow, shell, screen, app } from 'electron';
 import path from 'path';
-import { resolvePath, getRootPath } from '../utils.js';
+import { resolvePath, getRootPath, getUnpackedPath } from '../utils.js';
 import { TRUSTED_DOMAINS, USER_AGENT, isTrustedDomain } from '../../shared/constants.js';
 
 /**
@@ -45,11 +45,24 @@ export async function createMainWindow(configManager, targetDomain) {
   const settings = performanceSettings[profile] || performanceSettings.balanced;
   console.log(`[Window] Performance profile: ${profile}`, settings);
 
+  // Иконка может быть в asar или unpacked — пробуем оба варианта
+  let iconPath = path.join(getRootPath(), 'assets/icon.ico');
+  try {
+    // В production иконка может быть в unpacked
+    const unpackedIcon = path.join(getUnpackedPath(), 'assets/icon.ico');
+    const fs = require('fs');
+    if (fs.existsSync(unpackedIcon)) {
+      iconPath = unpackedIcon;
+    }
+  } catch (e) {
+    // Используем путь по умолчанию
+  }
+
   const win = new BrowserWindow({
     width, height,
     x: state.x, y: state.y,
     minWidth: 800, minHeight: 600,
-    icon: path.join(getRootPath(), 'assets/icon.ico'),
+    icon: iconPath,
     backgroundColor: '#19191a',
     show: false,
     frame: true,
@@ -103,12 +116,36 @@ export async function createMainWindow(configManager, targetDomain) {
     }
   });
 
-  // --- Экран "NET INTERNETA XDDDDDDDDD" ---
+  // --- Экран "NET INTERNETA" ---
   win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-      if (errorCode === -3) return; 
+      if (errorCode === -3) return;
       console.log('[Window] Load failed:', errorDescription);
       const html = `<html><head><meta charset="utf-8"><style>body{background:#19191a;color:#e1e3e6;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;user-select:none;margin:0}h2{margin-bottom:10px}p{color:#828282;margin-bottom:20px}.btn{padding:10px 20px;background:#e1e3e6;color:#19191a;border:none;border-radius:8px;cursor:pointer;font-weight:bold;transition:opacity 0.2s}.btn:hover{opacity:0.8}</style></head><body><h2>Нет соединения</h2><p>Проверьте подключение к интернету.</p><button class="btn" onclick="location.reload()">Попробовать снова</button><script>setInterval(()=>{if(navigator.onLine)location.reload()},5000)</script></body></html>`;
       win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html).toString('base64')}`);
+  });
+
+  // --- Обработка крашей renderer process ---
+  win.webContents.on('render-process-gone', (event, details) => {
+    console.error('[Window] Renderer process gone:', details.reason, details.exitCode);
+    
+    // Если краш — пробуем перезагрузить страницу
+    if (details.reason === 'crashed' || details.reason === 'killed') {
+      console.log('[Window] Attempting to reload after crash...');
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.reload();
+        }
+      }, 1000);
+    }
+  });
+
+  // --- Обработка unresponsive ---
+  win.webContents.on('unresponsive', () => {
+    console.warn('[Window] Page became unresponsive');
+  });
+
+  win.webContents.on('responsive', () => {
+    console.log('[Window] Page became responsive again');
   });
 
   // Загрузки
@@ -126,15 +163,42 @@ export async function createMainWindow(configManager, targetDomain) {
     cb(['notifications', 'media', 'fullscreen', 'download'].includes(p));
   });
 
-  // Taskbar кнопки
-  try {
-      const asset = (f) => path.join(getRootPath(), 'assets', f);
-      win.setThumbarButtons([
-          { tooltip: 'Prev', icon: asset('prev.png'), click: () => win.webContents.send('media:control', 'prev') },
-          { tooltip: 'Play/Pause', icon: asset('play.png'), click: () => win.webContents.send('media:control', 'play_pause') },
-          { tooltip: 'Next', icon: asset('next.png'), click: () => win.webContents.send('media:control', 'next') }
-      ]);
-  } catch(e) {}
+  // Taskbar кнопки (только Windows)
+  // Требуют иконки prev.png, play.png, next.png в папке assets
+  // TODO: добавить иконки для работы thumbar buttons
+  // РЕШИЛ НЕ ВНЕДРЯТЬ ЭТО ПОКА ЧТО, Т.К РАБОТАЕТ НЕ ВСЕГДА СТАБИЛЬНО
+  /*
+  if (process.platform === 'win32') {
+    try {
+      const fs = require('fs');
+      const asset = (f) => {
+        const unpackedPath = path.join(getUnpackedPath(), 'assets', f);
+        const regularPath = path.join(getRootPath(), 'assets', f);
+        if (fs.existsSync(unpackedPath)) return unpackedPath;
+        if (fs.existsSync(regularPath)) return regularPath;
+        return null;
+      };
+      
+      const prevIcon = asset('prev.png');
+      const playIcon = asset('play.png');
+      const nextIcon = asset('next.png');
+      
+      // Устанавливаем только если все иконки есть
+      if (prevIcon && playIcon && nextIcon) {
+        win.setThumbarButtons([
+          { tooltip: 'Prev', icon: prevIcon, click: () => win.webContents.send('media:control', 'prev') },
+          { tooltip: 'Play/Pause', icon: playIcon, click: () => win.webContents.send('media:control', 'play_pause') },
+          { tooltip: 'Next', icon: nextIcon, click: () => win.webContents.send('media:control', 'next') }
+        ]);
+        console.log('[Window] Thumbar buttons set');
+      } else {
+        console.log('[Window] Thumbar buttons skipped - missing icons');
+      }
+    } catch (e) {
+      console.warn('[Window] Failed to set thumbar buttons:', e.message);
+    }
+  }
+  */
 
   const loadContent = async () => {
     try {

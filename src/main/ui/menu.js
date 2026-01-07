@@ -1,8 +1,9 @@
-import { Menu, shell, app, dialog } from 'electron';
+import { Menu, app, dialog } from 'electron';
 import { manualCheck } from '../updater.js'; 
 
 export function createApplicationMenu(mainWindow, configManager) {
   const config = configManager.get();
+  const domain = config.domain || 'vk.com';
 
   const template = [
     // 1. ФАЙЛ
@@ -18,20 +19,21 @@ export function createApplicationMenu(mainWindow, configManager) {
               checked: !!config.enableDiscord,
               click: async () => {
                 const newValue = !config.enableDiscord;
+                // Если включаем, показываем предупреждение
                 if (newValue) {
                   const { response } = await dialog.showMessageBox(mainWindow, {
-                    type: 'warning',
-                    title: 'Требуется Discord',
-                    message: 'Функция транслирует музыку в статус Discord.',
+                    type: 'info',
+                    title: 'Discord RPC',
+                    message: 'Интеграция с Discord',
+                    detail: 'Приложение будет показывать текущий трек в вашем статусе Discord. Требуется запущенный Discord.',
                     buttons: ['Включить', 'Отмена'],
                     cancelId: 1
                   });
-                  if (response === 1) {
-                    createApplicationMenu(mainWindow, configManager);
-                    return;
-                  }
+                  if (response === 1) return; // Отмена
                 }
-                configManager.update({ enableDiscord: newValue });
+                
+                await configManager.update({ enableDiscord: newValue });
+                // Меню перерисуется автоматически через событие 'updated' в main.js
               }
             },
             { type: 'separator' },
@@ -43,7 +45,7 @@ export function createApplicationMenu(mainWindow, configManager) {
             },
             { type: 'separator' },
             {
-              label: 'Режим производительности',
+              label: 'Профиль производительности',
               submenu: [
                 {
                   label: 'Сбалансированный',
@@ -52,13 +54,13 @@ export function createApplicationMenu(mainWindow, configManager) {
                   click: () => configManager.update({ profile: 'balanced' })
                 },
                 {
-                  label: 'Максимальная скорость',
+                  label: 'Производительность',
                   type: 'radio',
                   checked: config.profile === 'performance',
                   click: () => configManager.update({ profile: 'performance' })
                 },
                 {
-                  label: 'Экономия энергии',
+                  label: 'Энергосбережение',
                   type: 'radio',
                   checked: config.profile === 'powersave',
                   click: () => configManager.update({ profile: 'powersave' })
@@ -93,7 +95,7 @@ export function createApplicationMenu(mainWindow, configManager) {
       ]
     },
 
-    // 3. НАВИГАЦИЯ (ИСПРАВЛЕНО ЗДЕСЬ)
+    // 3. НАВИГАЦИЯ
     {
       label: 'Навигация',
       submenu: [
@@ -117,12 +119,12 @@ export function createApplicationMenu(mainWindow, configManager) {
         },
         { type: 'separator' },
         {
-          label: 'Перезагрузить страницу',
+          label: 'Перезагрузить',
           accelerator: 'F5', 
           click: () => mainWindow.webContents.reload()
         },
         {
-          label: 'Принудительная перезагрузка',
+          label: 'Полная перезагрузка',
           accelerator: 'Ctrl+F5',
           click: () => mainWindow.webContents.reloadIgnoringCache()
         },
@@ -130,7 +132,15 @@ export function createApplicationMenu(mainWindow, configManager) {
         {
           label: 'На главную',
           accelerator: 'Ctrl+H',
-          click: () => mainWindow.loadURL(`https://${config.domain}`)
+          click: () => mainWindow.loadURL(`https://${domain}`)
+        },
+        {
+          label: 'Музыка',
+          click: () => mainWindow.loadURL(`https://${domain}/music`)
+        },
+        {
+          label: 'Сообщения',
+          click: () => mainWindow.loadURL(`https://${domain}/im`)
         }
       ]
     },
@@ -139,11 +149,17 @@ export function createApplicationMenu(mainWindow, configManager) {
     {
       label: 'Вид',
       submenu: [
-        { label: 'Увеличить масштаб', role: 'zoomIn' },
-        { label: 'Уменьшить масштаб', role: 'zoomOut' },
+        { label: 'Увеличить', role: 'zoomIn' },
+        { label: 'Уменьшить', role: 'zoomOut' },
         { label: 'Сбросить масштаб', role: 'resetZoom' },
         { type: 'separator' },
-        { label: 'На весь экран', role: 'togglefullscreen' }
+        { label: 'На весь экран', role: 'togglefullscreen' },
+        { type: 'separator' },
+        {
+          label: 'Инструменты разработчика',
+          accelerator: 'Ctrl+Shift+I',
+          click: () => mainWindow.webContents.toggleDevTools()
+        }
       ]
     },
 
@@ -152,18 +168,19 @@ export function createApplicationMenu(mainWindow, configManager) {
       label: 'Помощь',
       submenu: [
         {
-          label: 'Проверить обновления...',
+          label: 'Проверить обновления',
           click: () => manualCheck(mainWindow) 
         },
         {
-          label: 'Очистить кеш и перезагрузить',
+          label: 'Сбросить кеш',
           click: async () => {
               const { response } = await dialog.showMessageBox(mainWindow, {
-                  type: 'question',
-                  buttons: ['Очистить', 'Отмена'],
+                  type: 'warning',
+                  buttons: ['Сбросить', 'Отмена'],
                   title: 'Сброс кеша',
-                  message: 'Это исправит проблемы с загрузкой картинок и скриптов.',
-                  detail: 'Вам придется заново войти в аккаунт VK.'
+                  message: 'Вы уверены?',
+                  detail: 'Это исправит проблемы с отображением, но вам придется войти в аккаунт заново.',
+                  cancelId: 1
               });
               
               if (response === 0) {
@@ -179,10 +196,15 @@ export function createApplicationMenu(mainWindow, configManager) {
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: 'О программе',
+              title: 'VK Desktop',
               message: 'VK Desktop',
-              detail: `Версия: ${app.getVersion()}\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode.js: ${process.versions.node}\n\nРазработано с ❤️`,
-              buttons: ['OK']
+              detail: `Версия: ${app.getVersion()}\n` +
+                      `Electron: ${process.versions.electron}\n` +
+                      `Chrome: ${process.versions.chrome}\n` +
+                      `Node.js: ${process.versions.node}\n\n` +
+                      `Неофициальный клиент с поддержкой Discord RPC.\nСоздано с ❤️`,
+              buttons: ['OK'],
+              noLink: true
             });
           }
         }

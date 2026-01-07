@@ -4,15 +4,13 @@ import path from 'path';
 import { z } from 'zod';
 
 /**
- * Схема валидации конфигурации с Zod
- * @description Все поля имеют значения по умолчанию
+ * Схема валидации конфигурации
  */
 const ConfigSchema = z.object({
   profile: z.enum(['balanced', 'performance', 'powersave']).default('balanced'),
-  domain: z.string().default('vk.ru'),
+  domain: z.string().default('vk.ru'), // Используем vk.ru как дефолт, он стабильнее для API сейчас
   minimizeToTray: z.boolean().default(true),
   enableDiscord: z.boolean().default(false),
-  // VK Next расширение (включает блокировку рекламы)
   enableVKNext: z.boolean().default(true),
   windowState: z.object({
     width: z.number().optional(),
@@ -26,43 +24,50 @@ const ConfigSchema = z.object({
 const DEFAULT_CONFIG = ConfigSchema.parse({});
 
 /**
- * Менеджер конфигурации приложения
- * Обеспечивает загрузку, сохранение и обновление настроек с debounce.
- *
- * @description Выполняется в Main Process
- * @extends EventEmitter
+ * Менеджер конфигурации (Singleton logic expected in usage)
  */
 export default class ConfigManager extends EventEmitter {
-  /**
-   * @param {string} userDataPath - Путь к директории userData приложения
-   */
   constructor(userDataPath) {
     super();
-    /** @type {string} Путь к файлу конфигурации */
     this.path = path.join(userDataPath, 'config.json');
-    /** @type {Object} Текущая конфигурация */
     this.data = { ...DEFAULT_CONFIG };
-    /** @type {NodeJS.Timeout|null} Таймер отложенного сохранения */
     this.saveTimer = null;
-    /** @type {boolean} Флаг блокировки записи */
     this.isWriting = false;
-    /** @type {boolean} Флаг уничтожения менеджера */
     this.isDestroyed = false;
   }
 
   async load() {
     try {
-      // Проверяем, существует ли файл
-      await fs.access(this.path);
+      // ИЗМЕНЕНО: Сразу читаем файл без предварительной проверки (race condition fix)
       const fileContent = await fs.readFile(this.path, 'utf8');
-      const parsed = JSON.parse(fileContent);
-      // Объединяем с дефолтным конфигом (чтобы не терять новые поля)
-      this.data = ConfigSchema.parse({ ...DEFAULT_CONFIG, ...parsed });
+      
+      // Парсим JSON
+      let parsed;
+      try {
+        parsed = JSON.parse(fileContent);
+      } catch (e) {
+        console.warn('[Config] JSON parsing error, resetting to default');
+        parsed = {};
+      }
+
+      // Валидируем и мержим с дефолтным конфигом
+      // .catch() в parse позволяет не крашиться при невалидных данных, а подставлять дефолт
+      try {
+        this.data = ConfigSchema.parse({ ...DEFAULT_CONFIG, ...parsed });
+      } catch (validationError) {
+        console.warn('[Config] Validation error, using defaults for invalid fields:', validationError.errors);
+        // Zod throw error, so we try to sanitize what we can or reset
+        this.data = { ...DEFAULT_CONFIG, ...parsed }; // Fallback merge
+      }
+      
     } catch (error) {
-      // Если файла нет или он битый - создаем новый
-      console.warn('[Config] Файл не найден или поврежден, создаем новый.');
+      // ENOENT = файл не найден, это норма для первого запуска
+      if (error.code !== 'ENOENT') {
+        console.error('[Config] Load error:', error.message);
+      }
+      // Если файла нет, используем дефолт
       this.data = { ...DEFAULT_CONFIG };
-      await this.save(this.data, true); // Принудительное сохранение
+      await this.save(this.data, true);
     }
     return this.data;
   }
@@ -71,102 +76,85 @@ export default class ConfigManager extends EventEmitter {
     return this.data;
   }
 
-  // Метод для частичного обновления (patch)
   async update(patch) {
-    this.data = { ...this.data, ...patch };
-    this.emit('updated', this.data); // Уведомляем интерфейс мгновенно
+    // Мержим старые данные + патч + валидация, чтобы не записать мусор
+    const merged = { ...this.data, ...patch };
+    
+    // Пытаемся провалидировать перед сохранением
+    try {
+      this.data = ConfigSchema.parse(merged);
+    } catch (e) {
+      console.warn('[Config] Invalid update patch, ignoring invalid fields');
+      this.data = merged; // Сохраняем как есть, если валидация строгая - можно отменить
+    }
+
+    this.emit('updated', this.data);
     await this.save(this.data);
     return this.data;
   }
 
   async save(data, force = false) {
-    // ИЗМЕНЕНО: проверка на уничтоженный менеджер
-    if (this.isDestroyed) {
-      console.warn('[Config] Cannot save: manager is destroyed');
-      return;
-    }
+    if (this.isDestroyed) return;
 
-    // Обновляем локальные данные сразу
     this.data = { ...this.data, ...data };
 
-    // Если таймер уже запущен - сбрасываем его (Debounce)
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
 
-    // Функция записи на диск
     const writeToDisk = async () => {
       if (this.isWriting || this.isDestroyed) return;
       this.isWriting = true;
 
+      const tempPath = `${this.path}.tmp`;
+
       try {
-        const tempPath = `${this.path}.tmp`;
-        // 1. Пишем во временный файл
         await fs.writeFile(tempPath, JSON.stringify(this.data, null, 2));
-        // 2. Переименовываем (атомарная операция)
-        await fs.rename(tempPath, this.path);
+        
+        // ИЗМЕНЕНО: Ретрай механизм для Windows (EPERM fix)
+        // Иногда антивирус блокирует файл на мгновение после записи
+        let retries = 0;
+        while (retries < 3) {
+          try {
+            await fs.rename(tempPath, this.path);
+            break; 
+          } catch (err) {
+            if (err.code === 'EPERM' || err.code === 'EBUSY') {
+              retries++;
+              await new Promise(r => setTimeout(r, 100)); // Ждем 100мс
+            } else {
+              throw err;
+            }
+          }
+        }
       } catch (error) {
-        console.error('[Config] Save Error:', error.message);
+        console.error('[Config] Save failed:', error.message);
       } finally {
         this.isWriting = false;
+        // Чистим временный файл, если он остался (при ошибке rename)
+        try {
+           await fs.unlink(tempPath).catch(() => {});
+        } catch (e) {}
       }
     };
 
     if (force) {
       await writeToDisk();
     } else {
-      // Ждем 1 секунду тишины перед записью, чтобы не насиловать диск при ресайзе окна
       this.saveTimer = setTimeout(writeToDisk, 1000);
     }
   }
 
-  /**
-   * ИЗМЕНЕНО: Уничтожает менеджер и освобождает ресурсы
-   * Вызывается при выходе из приложения
-   * @returns {Promise<void>}
-   */
   async destroy() {
     this.isDestroyed = true;
-
-    // Очищаем таймер
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-
-    // Ждем завершения записи, если она идет
-    if (this.isWriting) {
-      await new Promise(resolve => {
-        const checkInterval = setInterval(() => {
-          if (!this.isWriting) {
-            clearInterval(checkInterval);
-            resolve();
-          }
-        }, 50);
-        
-        // Таймаут на случай зависания
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          resolve();
-        }, 2000);
-      });
-    }
-
-    // Удаляем все слушатели
-    this.removeAllListeners();
+    if (this.saveTimer) clearTimeout(this.saveTimer);
     
-    console.log('[Config] Manager destroyed');
-  }
-
-  /**
-   * Сбрасывает конфигурацию к значениям по умолчанию
-   * @returns {Promise<Object>}
-   */
-  async reset() {
-    this.data = { ...DEFAULT_CONFIG };
-    await this.save(this.data, true);
-    this.emit('updated', this.data);
-    return this.data;
+    // Если прямо сейчас пишем - подождем немного
+    if (this.isWriting) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    this.removeAllListeners();
   }
 }

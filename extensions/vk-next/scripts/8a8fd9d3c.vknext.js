@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[240],{20240:(e,t,o)=>{o.r(t);var a=o(7417),d=o(48913),n=o(33012);const s=e=>{e?document.body.dataset.vkmodule=e:delete document.body.dataset.vkmodule};(0,n.A)(s),(0,a.n)(async()=>{const e=await(0,d.e)();s(e.module)})},33012:(e,t,o)=>{o.d(t,{A:()=>a});const a=(0,o(13674).A)("module")}}]);

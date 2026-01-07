@@ -1,55 +1,84 @@
 import { Tray, Menu, app, nativeImage } from 'electron';
 import path from 'path';
-import { getRootPath } from '../utils.js';
+import { getRootPath, getUnpackedPath } from '../utils.js';
+import fs from 'fs';
 
-/** @type {Tray|null} Глобальная переменная трея */
 let tray = null;
 
 /**
- * Обновляет или создает системный трей
- *
- * @description Выполняется в Main Process
- * @param {Electron.BrowserWindow} mainWindow - Главное окно приложения
- * @param {import('../config/manager.js').default} configManager - Менеджер конфигурации
- * @returns {Tray} Экземпляр трея
+ * Загружает иконку (ищет в unpacked или root)
+ */
+function getIconPath() {
+  const unpackedPath = path.join(getUnpackedPath(), 'assets/icon.ico');
+  if (fs.existsSync(unpackedPath)) return unpackedPath;
+  return path.join(getRootPath(), 'assets/icon.ico');
+}
+
+/**
+ * Обновляет системный трей
  */
 export function updateTray(mainWindow, configManager) {
-  // Если трей уже есть - обновляем только меню, не пересоздаем иконку (чтобы не мигала)
-  // Но если она уничтожена (destroy), создаем заново.
   if (!tray || tray.isDestroyed()) {
-    const iconPath = path.join(getRootPath(), 'assets/icon.ico');
-    
-    // Создаем NativeImage для надежности
-    const icon = nativeImage.createFromPath(iconPath);
-    
-    tray = new Tray(icon);
-    tray.setToolTip('VK Desktop');
-    
-    // Обработчик двойного клика (стандарт Windows)
-    tray.on('double-click', () => {
-        mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
-        mainWindow.focus();
-    });
+    try {
+      const iconPath = getIconPath();
+      const icon = nativeImage.createFromPath(iconPath);
+      
+      if (icon.isEmpty()) {
+        console.warn('[Tray] Icon is empty, tray might not appear');
+      }
 
-    // Обработчик одиночного клика (опционально)
-    tray.on('click', () => {
-        if (!mainWindow.isVisible()) {
-            mainWindow.show();
-            mainWindow.focus();
-        }
-    });
+      tray = new Tray(icon);
+      tray.setToolTip('VK Desktop');
+      
+      tray.on('double-click', () => {
+          if (mainWindow.isVisible()) {
+             if (mainWindow.isMinimized()) mainWindow.restore();
+             else mainWindow.hide();
+          } else {
+             mainWindow.show();
+          }
+          mainWindow.focus();
+      });
+
+      tray.on('click', () => {
+          if (!mainWindow.isVisible()) {
+              mainWindow.show();
+              mainWindow.focus();
+          }
+      });
+    } catch (e) {
+      console.error('[Tray] Failed to create tray:', e.message);
+      return null;
+    }
   }
 
   const config = configManager.get();
+  const domain = config.domain || 'vk.com';
 
   const contextMenu = Menu.buildFromTemplate([
     { 
-      label: mainWindow.isVisible() ? 'Свернуть' : 'Открыть', 
+      label: mainWindow.isVisible() ? 'Свернуть' : 'Развернуть', 
       click: () => mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show() 
     },
     { type: 'separator' },
+    // Быстрые ссылки - очень удобно!
     {
-      label: 'В трей при закрытии',
+      label: 'Моя музыка',
+      click: () => {
+        mainWindow.loadURL(`https://${domain}/music`);
+        mainWindow.show();
+      }
+    },
+    {
+      label: 'Сообщения',
+      click: () => {
+        mainWindow.loadURL(`https://${domain}/im`);
+        mainWindow.show();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Сворачивать в трей',
       type: 'checkbox',
       checked: config.minimizeToTray,
       click: () => configManager.update({ minimizeToTray: !config.minimizeToTray })
@@ -62,7 +91,6 @@ export function updateTray(mainWindow, configManager) {
     { 
       label: 'Выход', 
       click: () => {
-        // Ставим флаг, чтобы window.on('close') не прервал выход
         app.isQuitting = true;
         app.quit();
       } 
@@ -73,23 +101,9 @@ export function updateTray(mainWindow, configManager) {
   return tray;
 }
 
-/**
- * ИЗМЕНЕНО: Уничтожает трей и освобождает ресурсы
- * Вызывается при выходе из приложения
- * @returns {void}
- */
 export function destroyTray() {
   if (tray && !tray.isDestroyed()) {
     tray.destroy();
-    console.log('[Tray] Destroyed');
   }
   tray = null;
-}
-
-/**
- * Получает текущий экземпляр трея
- * @returns {Tray|null}
- */
-export function getTray() {
-  return tray;
 }
