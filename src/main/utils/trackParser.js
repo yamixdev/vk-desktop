@@ -2,7 +2,7 @@
  * Парсер метаданных треков для VK Desktop.
  * Очищает мусор, декодирует HTML и валидирует обложки для Discord RPC.
  * 
- * @version 1.1.4
+ * @version 1.2.0
  */
 // Список мусора, который нужно вырезать из названий (Case Insensitive)
 const JUNK_REGEX = new RegExp(

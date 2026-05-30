@@ -1,6 +1,6 @@
 /**
  * Discord Rich Presence интеграция для VK Desktop
- * @version 1.1.4
+ * @version 1.2.0
  */
 
 import { Client } from '@xhayper/discord-rpc';
