@@ -1,5 +1,6 @@
 import { BrowserWindow, shell, screen, app } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { resolvePath, getRootPath, getUnpackedPath } from '../utils.js';
 import { TRUSTED_DOMAINS, USER_AGENT, isTrustedDomain } from '../../shared/constants.js';
 
@@ -50,7 +51,6 @@ export async function createMainWindow(configManager, targetDomain) {
   try {
     // В production иконка может быть в unpacked
     const unpackedIcon = path.join(getUnpackedPath(), 'assets/icon.ico');
-    const fs = require('fs');
     if (fs.existsSync(unpackedIcon)) {
       iconPath = unpackedIcon;
     }

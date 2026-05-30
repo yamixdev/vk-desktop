@@ -1,6 +1,6 @@
 /**
  * VK Desktop Auto-Updater
- * @version 1.1.4
+ * @version 1.2.0
  */
 import { dialog, app, BrowserWindow } from 'electron';
 import electronUpdater from 'electron-updater';

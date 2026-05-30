@@ -65,7 +65,7 @@ async function loadVKNextManager() {
 }
 
 async function bootstrap() {
-  console.log('[App] Initializing v1.1.4...');
+  console.log('[App] Initializing v1.2.0...');
   const startTime = Date.now();
   
   try {

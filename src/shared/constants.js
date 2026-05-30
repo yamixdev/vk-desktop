@@ -38,7 +38,7 @@ export const isDevelopment = () => {
 export const APP_CONFIG = Object.freeze({
   NAME: 'VK Desktop',
   ID: 'com.yamixdev.vkdesktop',
-  VERSION: '1.1.4', // Обновил версию под твой запрос
+  VERSION: '1.2.0', // Обновил версию до 1.2.0
   AUTHOR: 'yamixdev',
   HOMEPAGE: 'https://github.com/yamixdev/vk-desktop',
   REPOSITORY: 'https://github.com/yamixdev/vk-desktop',
@@ -178,9 +178,9 @@ export const NETWORK_CONFIG = Object.freeze({
     RETRY_ON_CODES: [408, 429, 500, 502, 503, 504]
   }),
   
-  // User-Agent для Electron 39 (Chrome 134)
+  // User-Agent для Electron 42 (Chrome 148)
   // Важно обновлять, чтобы VK не резал функционал "старого браузера"
-  USER_AGENT: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+  USER_AGENT: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
 });
 
 // Для совместимости экспортируем отдельно
