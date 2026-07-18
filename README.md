@@ -62,7 +62,7 @@ VK Next является сторонним компонентом. Права �
 
 ## Сборка из исходников
 
-Понадобятся Windows x64, Node.js 24 и npm 11.
+Понадобятся Windows x64, Node.js 26 и npm 11.
 
 ```powershell
 git clone https://github.com/yamixdev/vk-desktop.git

@@ -62,7 +62,7 @@ varies with the active section, VK Next, the GPU process, and session length.
 
 ## Building from source
 
-Windows x64, Node.js 24, and npm 11 are required.
+Windows x64, Node.js 26, and npm 11 are required.
 
 ```powershell
 git clone https://github.com/yamixdev/vk-desktop.git

@@ -73,7 +73,7 @@ Do not commit:
 The primary target environment is:
 
 - Windows x64;
-- Node.js 24; and
+- Node.js 26; and
 - npm 11.
 
 ```powershell
