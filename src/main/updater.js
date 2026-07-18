@@ -1,11 +1,9 @@
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, dialog } from 'electron';
 import electronUpdater from 'electron-updater';
 import builderUtilRuntime from 'builder-util-runtime';
 import logger from 'electron-log';
-import { APP_PAGE_URLS } from '../shared/appProtocolPolicy.js';
 import { IPC_CHANNELS } from '../shared/ipcSchemas.js';
-import { resolvePath } from './utils.js';
 import {
   createUpdaterState,
   transitionUpdaterState,
@@ -28,6 +26,7 @@ logger.transports.file.level = 'info';
 autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
+autoUpdater.autoRunAppAfterInstall = true;
 autoUpdater.allowDowngrade = false;
 
 let initialized = false;
@@ -37,20 +36,40 @@ let updaterState = createUpdaterState();
 let startupTimer = null;
 let periodicTimer = null;
 let activeCheckTask = null;
+let activeReleaseCheckTask = null;
 let releaseCheckController = null;
 let checkErrorHandled = false;
-let progressWindow = null;
 let cancellationToken = null;
 let activeDownloadTask = null;
 let downloadCancellationRequested = false;
 let downloadErrorHandled = false;
 let latestProgress = { percent: 0, speed: '—' };
 let latestUpdateInfo = null;
+let latestReleaseResult = null;
+let latestReleaseCheckedAt = 0;
 let updatePromptPromise = null;
 
 function setState(event) {
   updaterState = transitionUpdaterState(updaterState, event);
+  sendUpdaterState();
   return updaterState;
+}
+
+export function getUpdaterSnapshot() {
+  return {
+    phase: updaterState.phase,
+    progress: Math.round(updaterState.progress),
+    speed: latestProgress.speed,
+    currentVersion: app.getVersion(),
+    availableVersion: latestUpdateInfo?.version ?? updaterState.lastCheck?.remoteVersion ?? null,
+    error: updaterState.phase === UPDATE_PHASES.ERROR ? updaterState.error : null,
+    runtimeSupported: isUpdaterRuntimeSupported()
+  };
+}
+
+export function sendUpdaterState(window = getMainWindow()) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+  window.webContents.send(IPC_CHANNELS.UPDATE_STATE, getUpdaterSnapshot());
 }
 
 function isUnpackedBuild() {
@@ -124,19 +143,63 @@ async function showManualCheckError(mainWindow, error) {
 }
 
 async function runReleasePreflight() {
-  const controller = new AbortController();
-  releaseCheckController = controller;
-  const timeout = setTimeout(() => controller.abort(), RELEASE_CHECK_TIMEOUT_MS);
-  timeout.unref?.();
+  if (
+    latestReleaseResult
+    && Date.now() - latestReleaseCheckedAt <= MANUAL_RELEASE_DETAILS_CACHE_MS
+  ) {
+    return latestReleaseResult;
+  }
+  if (activeReleaseCheckTask) return activeReleaseCheckTask;
 
+  const task = (async () => {
+    const controller = new AbortController();
+    releaseCheckController = controller;
+    const timeout = setTimeout(() => controller.abort(), RELEASE_CHECK_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+      const result = await checkLatestGitHubRelease({
+        currentVersion: app.getVersion(),
+        signal: controller.signal
+      });
+      latestReleaseResult = result;
+      latestReleaseCheckedAt = Date.now();
+      return result;
+    } finally {
+      clearTimeout(timeout);
+      if (releaseCheckController === controller) releaseCheckController = null;
+    }
+  })();
+
+  let trackedTask;
+  trackedTask = task.finally(() => {
+    if (activeReleaseCheckTask === trackedTask) activeReleaseCheckTask = null;
+  });
+  activeReleaseCheckTask = trackedTask;
+  return trackedTask;
+}
+
+const MANUAL_RELEASE_DETAILS_CACHE_MS = 5 * 60 * 1000;
+
+export async function getReleaseNotesDetails() {
   try {
-    return await checkLatestGitHubRelease({
+    const result = await runReleasePreflight();
+    return {
       currentVersion: app.getVersion(),
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeout);
-    if (releaseCheckController === controller) releaseCheckController = null;
+      status: result.status,
+      reason: result.reason,
+      release: result.release ?? null,
+      error: null
+    };
+  } catch (error) {
+    logger.warn('[Updater] Could not load release notes:', error);
+    return {
+      currentVersion: app.getVersion(),
+      status: RELEASE_CHECK_STATUS.ERROR,
+      reason: error?.code ?? 'release-notes-failed',
+      release: latestReleaseResult?.release ?? null,
+      error: 'Не удалось загрузить описание релиза.'
+    };
   }
 }
 
@@ -196,90 +259,33 @@ function getReleaseNotes(info) {
   return 'Исправления ошибок и улучшения.';
 }
 
-function sendProgress() {
-  if (!progressWindow || progressWindow.isDestroyed()) return;
-  progressWindow.webContents.send(IPC_CHANNELS.UPDATE_PROGRESS, latestProgress);
-}
-
-function closeProgressWindow() {
-  if (progressWindow && !progressWindow.isDestroyed()) progressWindow.destroy();
-  progressWindow = null;
+function clearDownloadProgress() {
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
 }
 
-function cancelDownload() {
+export function cancelUpdateDownload() {
   if (updaterState.phase !== UPDATE_PHASES.DOWNLOADING) return;
   downloadCancellationRequested = true;
   cancellationToken?.cancel();
   setState({ type: 'CANCELLED' });
-  closeProgressWindow();
-}
-
-function onCancelRequest(event) {
-  if (!progressWindow || progressWindow.isDestroyed() || event.sender !== progressWindow.webContents) return;
-  cancelDownload();
-}
-
-function createProgressWindow(parentWindow) {
-  if (progressWindow && !progressWindow.isDestroyed()) {
-    progressWindow.show();
-    progressWindow.focus();
-    return progressWindow;
-  }
-
-  progressWindow = new BrowserWindow({
-    width: 460,
-    height: 230,
-    parent: parentWindow,
-    modal: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    show: false,
-    backgroundColor: '#19191a',
-    webPreferences: {
-      preload: resolvePath('../preload/update.cjs'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true
-    }
-  });
-  progressWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  progressWindow.webContents.on('will-navigate', (event) => event.preventDefault());
-  progressWindow.webContents.once('did-finish-load', sendProgress);
-  progressWindow.once('ready-to-show', () => progressWindow?.show());
-  progressWindow.on('close', (event) => {
-    if (updaterState.phase !== UPDATE_PHASES.DOWNLOADING) return;
-    event.preventDefault();
-    void dialog.showMessageBox(progressWindow, {
-      type: 'question',
-      title: 'Отменить обновление?',
-      message: 'Загрузка обновления будет остановлена.',
-      buttons: ['Отменить загрузку', 'Продолжить'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true
-    }).then(({ response }) => {
-      if (response === 0) cancelDownload();
-    });
-  });
-  progressWindow.on('closed', () => { progressWindow = null; });
-  void progressWindow.loadURL(APP_PAGE_URLS.updateProgress);
-  return progressWindow;
+  clearDownloadProgress();
 }
 
 async function startDownload() {
   const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed() || updaterState.phase === UPDATE_PHASES.DOWNLOADING) return;
+  if (
+    !mainWindow
+    || mainWindow.isDestroyed()
+    || updaterState.phase !== UPDATE_PHASES.AVAILABLE
+    || !latestUpdateInfo
+  ) return updaterState;
 
   cancellationToken = new CancellationToken();
   downloadCancellationRequested = false;
   downloadErrorHandled = false;
   latestProgress = { percent: 0, speed: '—' };
   setState({ type: 'DOWNLOAD_STARTED' });
-  createProgressWindow(mainWindow);
 
   const downloadTask = (async () => {
     try {
@@ -287,7 +293,7 @@ async function startDownload() {
     } catch (error) {
       const wasCancelled = disposed || downloadCancellationRequested || cancellationToken?.cancelled;
       if (wasCancelled) {
-        setState({ type: 'CANCELLED' });
+        if (!disposed) setState({ type: 'CANCELLED' });
       } else if (!downloadErrorHandled) {
         logger.error('[Updater] Update download failed:', error);
         setState({ type: 'ERROR', error: error.message });
@@ -296,7 +302,7 @@ async function startDownload() {
       cancellationToken = null;
       downloadCancellationRequested = false;
       downloadErrorHandled = false;
-      closeProgressWindow();
+      clearDownloadProgress();
     }
   })();
   let trackedTask;
@@ -305,6 +311,11 @@ async function startDownload() {
   });
   activeDownloadTask = trackedTask;
   await trackedTask;
+  return updaterState;
+}
+
+export function downloadAvailableUpdate() {
+  return startDownload();
 }
 
 async function performUpdateCheck({ manual }) {
@@ -361,13 +372,27 @@ async function showDownloadedUpdatePrompt() {
     noLink: true
   });
   if (response === 0) {
-    logger.info('[Updater] User requested restart and update installation.');
-    // quitAndInstall closes windows before Electron emits before-quit.
-    // Mark the shutdown first so "minimize to tray" cannot cancel installation.
-    app.isQuitting = true;
-    autoUpdater.quitAndInstall();
+    installDownloadedUpdate();
   }
   return updaterState;
+}
+
+export function installDownloadedUpdate() {
+  if (updaterState.phase !== UPDATE_PHASES.DOWNLOADED) return false;
+  logger.info('[Updater] User requested restart and update installation.');
+  // quitAndInstall closes windows before Electron emits before-quit. Mark the
+  // shutdown first so "minimize to tray" cannot cancel installation.
+  app.isQuitting = true;
+  autoUpdater.autoRunAppAfterInstall = true;
+  try {
+    if (process.platform === 'win32') autoUpdater.quitAndInstall(true, true);
+    else autoUpdater.quitAndInstall();
+    return true;
+  } catch (error) {
+    app.isQuitting = false;
+    onUpdaterError(error);
+    return false;
+  }
 }
 
 async function checkForUpdates({ manual = false } = {}) {
@@ -385,10 +410,6 @@ async function checkForUpdates({ manual = false } = {}) {
   }
 
   if (updaterState.phase === UPDATE_PHASES.DOWNLOADING) {
-    if (manual && progressWindow && !progressWindow.isDestroyed()) {
-      progressWindow.show();
-      progressWindow.focus();
-    }
     return updaterState;
   }
 
@@ -433,7 +454,6 @@ async function onUpdateAvailable(info) {
 
   const mainWindow = getMainWindow();
   if (!mainWindow || mainWindow.isDestroyed()) {
-    setState({ type: 'RESET' });
     return updaterState;
   }
 
@@ -450,7 +470,6 @@ async function onUpdateAvailable(info) {
     });
     if (disposed) return updaterState;
     if (response === 0) await startDownload();
-    else setState({ type: 'RESET' });
     return updaterState;
   });
   updatePromptPromise = promptTask();
@@ -469,7 +488,6 @@ function onDownloadProgress(progress) {
     speed: `${formatBytes(Number(progress.bytesPerSecond) || 0)}/с`
   };
   setState({ type: 'DOWNLOAD_PROGRESS', progress: percent });
-  sendProgress();
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(percent / 100);
 }
@@ -480,7 +498,7 @@ async function onUpdateDownloaded() {
   downloadCancellationRequested = false;
   downloadErrorHandled = false;
   setState({ type: 'DOWNLOADED' });
-  closeProgressWindow();
+  clearDownloadProgress();
   await showDownloadedUpdatePrompt();
 }
 
@@ -507,7 +525,7 @@ function onUpdaterError(error) {
     logger.error('[Updater] Update download failed:', error);
     setState({ type: 'ERROR', error: error?.message });
     cancellationToken = null;
-    closeProgressWindow();
+    clearDownloadProgress();
     dialog.showErrorBox('Ошибка обновления', 'Не удалось загрузить обновление.');
     return;
   }
@@ -530,7 +548,6 @@ export function initAutoUpdater(windowOrProvider) {
 
   initialized = true;
   disposed = false;
-  ipcMain.on(IPC_CHANNELS.UPDATE_CANCEL, onCancelRequest);
   autoUpdater.on('update-available', onUpdateAvailable);
   autoUpdater.on('download-progress', onDownloadProgress);
   autoUpdater.on('update-downloaded', onUpdateDownloaded);
@@ -562,8 +579,8 @@ export async function disposeAutoUpdater() {
   periodicTimer = null;
   releaseCheckController?.abort();
   releaseCheckController = null;
-  cancelDownload();
-  closeProgressWindow();
+  cancelUpdateDownload();
+  clearDownloadProgress();
   if (activeDownloadTask) {
     let timeoutId;
     await Promise.race([
@@ -571,14 +588,16 @@ export async function disposeAutoUpdater() {
       new Promise((resolve) => { timeoutId = setTimeout(resolve, 5000); })
     ]).finally(() => clearTimeout(timeoutId));
   }
-  ipcMain.removeListener(IPC_CHANNELS.UPDATE_CANCEL, onCancelRequest);
   autoUpdater.removeListener('update-available', onUpdateAvailable);
   autoUpdater.removeListener('download-progress', onDownloadProgress);
   autoUpdater.removeListener('update-downloaded', onUpdateDownloaded);
   autoUpdater.removeListener('update-not-available', onUpdateNotAvailable);
   autoUpdater.removeListener('error', onUpdaterError);
   activeCheckTask = null;
+  activeReleaseCheckTask = null;
   latestUpdateInfo = null;
+  latestReleaseResult = null;
+  latestReleaseCheckedAt = 0;
   updatePromptPromise = null;
   checkErrorHandled = false;
   setState({ type: 'CLEAR' });

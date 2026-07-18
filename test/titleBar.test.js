@@ -1,25 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { IPC_CHANNELS } from '../src/shared/ipcSchemas.js';
 import {
-  TITLE_BAR_HEIGHT,
-  createTitleBarOverlay,
-  normalizeTitleBarTheme
+  getTitleBarWindowState,
+  sendTitleBarWindowState,
+  TITLE_BAR_HEIGHT
 } from '../src/main/window/titleBar.js';
 
-test('uses matching native-control colors for light and dark title bars', () => {
-  assert.deepEqual(createTitleBarOverlay('light'), {
-    color: '#f0f2f5',
-    symbolColor: '#141414',
-    height: TITLE_BAR_HEIGHT
-  });
-  assert.deepEqual(createTitleBarOverlay('dark'), {
-    color: '#19191a',
-    symbolColor: '#f2f3f5',
-    height: TITLE_BAR_HEIGHT
+function createWindow(overrides = {}) {
+  const messages = [];
+  const window = {
+    isDestroyed: () => false,
+    isMaximized: () => true,
+    isFullScreen: () => false,
+    webContents: {
+      isDestroyed: () => false,
+      navigationHistory: { canGoBack: () => true },
+      send: (...message) => messages.push(message)
+    },
+    ...overrides
+  };
+  return { window, messages };
+}
+
+test('uses a compact 40px title bar and reports native window state', () => {
+  const { window } = createWindow();
+  assert.equal(TITLE_BAR_HEIGHT, 40);
+  assert.deepEqual(getTitleBarWindowState(window), {
+    canGoBack: true,
+    isMaximized: true,
+    isFullScreen: false,
+    platform: process.platform
   });
 });
 
-test('falls back to a readable light title bar for invalid input', () => {
-  assert.equal(normalizeTitleBarTheme('unknown'), 'light');
-  assert.deepEqual(createTitleBarOverlay(null), createTitleBarOverlay('light'));
+test('sends title bar state only to a live renderer', () => {
+  const { window, messages } = createWindow();
+  sendTitleBarWindowState(window);
+  assert.deepEqual(messages, [[IPC_CHANNELS.TITLE_BAR_STATE, getTitleBarWindowState(window)]]);
+  assert.equal(getTitleBarWindowState(null), null);
 });

@@ -13,8 +13,9 @@ import {
 import { IPC_CHANNELS } from '../../shared/ipcSchemas.js';
 import { configureSessionSecurity } from '../security/session.js';
 import { getRootPath, getUnpackedPath, resolvePath } from '../utils.js';
+import { installWindowShortcuts } from './shortcuts.js';
 import { normalizeWindowState } from './state.js';
-import { createTitleBarOverlay } from './titleBar.js';
+import { sendTitleBarWindowState } from './titleBar.js';
 
 const MAX_CRASH_RELOADS = 3;
 const CRASH_WINDOW_MS = 2 * 60 * 1000;
@@ -77,9 +78,6 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     show: false,
     autoHideMenuBar: false,
     titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' ? {
-      titleBarOverlay: createTitleBarOverlay(nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
-    } : {}),
     webPreferences: {
       preload: resolvePath('../preload/index.cjs'),
       contextIsolation: true,
@@ -98,6 +96,7 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
   if (state.isMaximized) win.maximize();
   win.webContents.setUserAgent(USER_AGENT);
   win.setMenuBarVisibility(false);
+  const removeWindowShortcuts = installWindowShortcuts(win.webContents);
   const windowSession = win.webContents.session;
   configureSessionSecurity(windowSession, () => win);
 
@@ -157,6 +156,10 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     if (isInternalNavigationUrl(targetUrl) && !getExternalRedirectTarget(targetUrl)) {
       lastTrustedUrl = targetUrl;
     }
+    sendTitleBarWindowState(win);
+  });
+  win.webContents.on('did-navigate-in-page', (_event, _targetUrl, isMainFrame) => {
+    if (isMainFrame) sendTitleBarWindowState(win);
   });
 
   win.webContents.on('did-fail-load', (
@@ -268,6 +271,10 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
   };
   win.on('resize', scheduleStateSave);
   win.on('move', scheduleStateSave);
+  win.on('maximize', () => sendTitleBarWindowState(win));
+  win.on('unmaximize', () => sendTitleBarWindowState(win));
+  win.on('enter-full-screen', () => sendTitleBarWindowState(win));
+  win.on('leave-full-screen', () => sendTitleBarWindowState(win));
 
   const enterBackgroundMode = () => {
     if (win.isDestroyed()) return;
@@ -289,6 +296,7 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     if (resizeTimer) clearTimeout(resizeTimer);
     if (showFallbackTimer) clearTimeout(showFallbackTimer);
     windowSession.removeListener('will-download', onWillDownload);
+    removeWindowShortcuts();
   });
 
   void win.loadURL(lastTrustedUrl).catch(() => openOfflinePage());

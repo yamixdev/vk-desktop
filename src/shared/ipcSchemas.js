@@ -57,7 +57,6 @@ export const MediaProgressSchema = z.object({
 
 export const BadgeCountSchema = z.number().int().min(0).max(9999);
 export const PerformanceProfileSchema = z.enum(['balanced', 'performance', 'powersave']);
-export const TitleBarThemeSchema = z.enum(['light', 'dark']);
 
 export const IPC_CHANNELS = Object.freeze({
   MEDIA_STATE: 'media:state',
@@ -66,7 +65,16 @@ export const IPC_CHANNELS = Object.freeze({
   BADGE_UPDATE: 'app:badge',
   PERFORMANCE_PROFILE: 'app:profile',
   TITLE_BAR_MENU: 'window:titlebar-menu',
-  TITLE_BAR_THEME: 'window:titlebar-theme',
+  TITLE_BAR_READY: 'window:titlebar-ready',
+  TITLE_BAR_STATE: 'window:titlebar-state',
+  TITLE_BAR_BACK: 'window:titlebar-back',
+  TITLE_BAR_MINIMIZE: 'window:titlebar-minimize',
+  TITLE_BAR_TOGGLE_MAXIMIZE: 'window:titlebar-toggle-maximize',
+  TITLE_BAR_CLOSE: 'window:titlebar-close',
+  UPDATE_STATE: 'update:state',
+  UPDATE_RELEASE_NOTES: 'update:release-notes',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
   UPDATE_PROGRESS: 'update:progress',
   UPDATE_CANCEL: 'update:cancel'
 });

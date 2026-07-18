@@ -57,13 +57,27 @@ test('reads and compares the latest GitHub release tag', async () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ tag_name: 'v1.3.0' })
+        json: async () => ({
+          tag_name: 'v1.3.0',
+          name: 'VK Desktop 1.3.0',
+          body: '## Исправления\n\n- Готово',
+          html_url: 'https://github.com/yamixdev/vk-desktop/releases/tag/v1.3.0',
+          published_at: '2026-07-18T12:00:00.000Z'
+        })
       };
     }
   });
 
   assert.equal(result.status, RELEASE_CHECK_STATUS.UPDATE_AVAILABLE);
   assert.equal(result.remoteVersion, '1.3.0');
+  assert.deepEqual(result.release, {
+    version: '1.3.0',
+    tagName: 'v1.3.0',
+    name: 'VK Desktop 1.3.0',
+    body: '## Исправления\n\n- Готово',
+    htmlUrl: 'https://github.com/yamixdev/vk-desktop/releases/tag/v1.3.0',
+    publishedAt: '2026-07-18T12:00:00.000Z'
+  });
   assert.equal(request.options.headers['User-Agent'], 'VK-Desktop-Updater');
 });
 

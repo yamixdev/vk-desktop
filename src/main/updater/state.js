@@ -77,6 +77,15 @@ export function transitionUpdaterState(state, event) {
           : state.lastCheck
       };
     case 'CANCELLED':
+      return {
+        ...state,
+        phase: state.lastCheck?.status === 'update-available'
+          ? UPDATE_PHASES.AVAILABLE
+          : UPDATE_PHASES.IDLE,
+        manual: false,
+        progress: 0,
+        error: null
+      };
     case 'RESET':
       return {
         ...state,

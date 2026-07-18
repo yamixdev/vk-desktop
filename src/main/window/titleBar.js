@@ -1,29 +1,19 @@
-export const TITLE_BAR_HEIGHT = 48;
+import { IPC_CHANNELS } from '../../shared/ipcSchemas.js';
 
-const TITLE_BAR_PALETTES = Object.freeze({
-  light: Object.freeze({
-    color: '#f0f2f5',
-    symbolColor: '#141414'
-  }),
-  dark: Object.freeze({
-    color: '#19191a',
-    symbolColor: '#f2f3f5'
-  })
-});
+export const TITLE_BAR_HEIGHT = 40;
 
-export function normalizeTitleBarTheme(theme) {
-  return theme === 'dark' ? 'dark' : 'light';
-}
-
-export function createTitleBarOverlay(theme) {
-  const palette = TITLE_BAR_PALETTES[normalizeTitleBarTheme(theme)];
+export function getTitleBarWindowState(window) {
+  if (!window || window.isDestroyed()) return null;
   return {
-    ...palette,
-    height: TITLE_BAR_HEIGHT
+    canGoBack: Boolean(window.webContents.navigationHistory?.canGoBack()),
+    isMaximized: window.isMaximized(),
+    isFullScreen: window.isFullScreen(),
+    platform: process.platform
   };
 }
 
-export function applyTitleBarTheme(window, theme) {
-  if (process.platform === 'darwin' || !window || window.isDestroyed()) return;
-  window.setTitleBarOverlay(createTitleBarOverlay(theme));
+export function sendTitleBarWindowState(window) {
+  const state = getTitleBarWindowState(window);
+  if (!state || window.webContents.isDestroyed()) return;
+  window.webContents.send(IPC_CHANNELS.TITLE_BAR_STATE, state);
 }

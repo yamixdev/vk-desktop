@@ -2,13 +2,19 @@ import {
   BadgeCountSchema,
   IPC_CHANNELS,
   MediaProgressSchema,
-  MediaStateSchema,
-  TitleBarThemeSchema
+  MediaStateSchema
 } from '../shared/ipcSchemas.js';
 import { isAppPageUrl } from '../shared/appProtocolPolicy.js';
 import { isPrivilegedRendererUrl } from '../shared/urlPolicy.js';
 import { popupHeaderMenu } from './ui/menu.js';
-import { applyTitleBarTheme } from './window/titleBar.js';
+import {
+  cancelUpdateDownload,
+  downloadAvailableUpdate,
+  getReleaseNotesDetails,
+  installDownloadedUpdate,
+  sendUpdaterState
+} from './updater.js';
+import { sendTitleBarWindowState } from './window/titleBar.js';
 
 function isMainFrameSender(event, mainWindow) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
@@ -109,25 +115,107 @@ export function registerMainIpc({
     popupHeaderMenu(mainWindow);
   };
 
-  const onTitleBarTheme = (event, payload) => {
+  const onTitleBarReady = (event) => {
     const mainWindow = getMainWindow();
     if (!isTitleBarSender(event, mainWindow)) return;
-    const parsed = TitleBarThemeSchema.safeParse(payload);
-    if (!parsed.success || !allowEvent(IPC_CHANNELS.TITLE_BAR_THEME, 100)) return;
-    applyTitleBarTheme(mainWindow, parsed.data);
+    sendTitleBarWindowState(mainWindow);
+    sendUpdaterState(mainWindow);
+  };
+
+  const onTitleBarBack = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.TITLE_BAR_BACK, 150)) return;
+    const history = mainWindow.webContents.navigationHistory;
+    if (history.canGoBack()) history.goBack();
+  };
+
+  const onTitleBarMinimize = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.TITLE_BAR_MINIMIZE, 100)) return;
+    mainWindow.minimize();
+  };
+
+  const onTitleBarToggleMaximize = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.TITLE_BAR_TOGGLE_MAXIMIZE, 100)) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    sendTitleBarWindowState(mainWindow);
+  };
+
+  const onTitleBarClose = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.TITLE_BAR_CLOSE, 100)) return;
+    mainWindow.close();
+  };
+
+  const onUpdateDownload = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.UPDATE_DOWNLOAD, 500)) return;
+    void downloadAvailableUpdate().catch((error) => {
+      console.warn('[IPC] Could not start update download:', error.message);
+    });
+  };
+
+  const onUpdateInstall = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.UPDATE_INSTALL, 1000)) return;
+    installDownloadedUpdate();
+  };
+
+  const onUpdateCancel = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.UPDATE_CANCEL, 500)) return;
+    cancelUpdateDownload();
+  };
+
+  const onReleaseNotes = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) {
+      return {
+        currentVersion: app.getVersion(),
+        status: 'error',
+        release: null,
+        error: 'Недоступный источник запроса.'
+      };
+    }
+    return getReleaseNotesDetails();
   };
 
   ipcMain.on(IPC_CHANNELS.MEDIA_STATE, onMediaState);
   ipcMain.on(IPC_CHANNELS.MEDIA_PROGRESS, onMediaProgress);
   ipcMain.on(IPC_CHANNELS.BADGE_UPDATE, onBadgeUpdate);
   ipcMain.on(IPC_CHANNELS.TITLE_BAR_MENU, onTitleBarMenu);
-  ipcMain.on(IPC_CHANNELS.TITLE_BAR_THEME, onTitleBarTheme);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_READY, onTitleBarReady);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_BACK, onTitleBarBack);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_MINIMIZE, onTitleBarMinimize);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_TOGGLE_MAXIMIZE, onTitleBarToggleMaximize);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_CLOSE, onTitleBarClose);
+  ipcMain.on(IPC_CHANNELS.UPDATE_DOWNLOAD, onUpdateDownload);
+  ipcMain.on(IPC_CHANNELS.UPDATE_INSTALL, onUpdateInstall);
+  ipcMain.on(IPC_CHANNELS.UPDATE_CANCEL, onUpdateCancel);
+  ipcMain.handle(IPC_CHANNELS.UPDATE_RELEASE_NOTES, onReleaseNotes);
 
   return () => {
     ipcMain.removeListener(IPC_CHANNELS.MEDIA_STATE, onMediaState);
     ipcMain.removeListener(IPC_CHANNELS.MEDIA_PROGRESS, onMediaProgress);
     ipcMain.removeListener(IPC_CHANNELS.BADGE_UPDATE, onBadgeUpdate);
     ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_MENU, onTitleBarMenu);
-    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_THEME, onTitleBarTheme);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_READY, onTitleBarReady);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_BACK, onTitleBarBack);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_MINIMIZE, onTitleBarMinimize);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_TOGGLE_MAXIMIZE, onTitleBarToggleMaximize);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_CLOSE, onTitleBarClose);
+    ipcMain.removeListener(IPC_CHANNELS.UPDATE_DOWNLOAD, onUpdateDownload);
+    ipcMain.removeListener(IPC_CHANNELS.UPDATE_INSTALL, onUpdateInstall);
+    ipcMain.removeListener(IPC_CHANNELS.UPDATE_CANCEL, onUpdateCancel);
+    ipcMain.removeHandler(IPC_CHANNELS.UPDATE_RELEASE_NOTES);
   };
 }

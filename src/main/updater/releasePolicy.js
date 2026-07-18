@@ -37,6 +37,34 @@ function normalizeVersion(value, label) {
   return cleaned;
 }
 
+function boundedText(value, maxLength) {
+  return typeof value === 'string' ? value.slice(0, maxLength) : '';
+}
+
+function normalizeHttpsUrl(value) {
+  try {
+    const url = new URL(String(value ?? ''));
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeGitHubRelease(release, version) {
+  if (!release || typeof release !== 'object') return null;
+  const publishedTimestamp = Date.parse(release.published_at);
+  return {
+    version,
+    tagName: boundedText(release.tag_name, 64) || `v${version}`,
+    name: boundedText(release.name, 200),
+    body: boundedText(release.body, 100_000),
+    htmlUrl: normalizeHttpsUrl(release.html_url),
+    publishedAt: Number.isFinite(publishedTimestamp)
+      ? new Date(publishedTimestamp).toISOString()
+      : null
+  };
+}
+
 export function compareReleaseVersions(currentVersion, remoteVersion) {
   const current = normalizeVersion(currentVersion, 'Current application version');
   const remote = normalizeVersion(remoteVersion, 'Latest release version');
@@ -120,7 +148,11 @@ export async function checkLatestGitHubRelease({
     });
   }
 
-  return compareReleaseVersions(currentVersion, release?.tag_name);
+  const comparison = compareReleaseVersions(currentVersion, release?.tag_name);
+  return {
+    ...comparison,
+    release: normalizeGitHubRelease(release, comparison.remoteVersion)
+  };
 }
 
 export function isFreshCurrentCheck(lastCheck, {

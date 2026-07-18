@@ -7,7 +7,17 @@ const CHANNELS = Object.freeze({
   BADGE_UPDATE: 'app:badge',
   PERFORMANCE_PROFILE: 'app:profile',
   TITLE_BAR_MENU: 'window:titlebar-menu',
-  TITLE_BAR_THEME: 'window:titlebar-theme'
+  TITLE_BAR_READY: 'window:titlebar-ready',
+  TITLE_BAR_STATE: 'window:titlebar-state',
+  TITLE_BAR_BACK: 'window:titlebar-back',
+  TITLE_BAR_MINIMIZE: 'window:titlebar-minimize',
+  TITLE_BAR_TOGGLE_MAXIMIZE: 'window:titlebar-toggle-maximize',
+  TITLE_BAR_CLOSE: 'window:titlebar-close',
+  UPDATE_STATE: 'update:state',
+  UPDATE_RELEASE_NOTES: 'update:release-notes',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_CANCEL: 'update:cancel'
 });
 const ALLOWED_HOSTS = new Set(['vk.com', 'vk.ru', 'm.vk.com', 'm.vk.ru']);
 const ALLOWED_PROFILES = new Set(['balanced', 'performance', 'powersave']);
@@ -17,8 +27,17 @@ const MEDIA_COMMAND_SELECTORS = Object.freeze({
   prev: 'button[data-testid="audio-player-controls-backward-button"]'
 });
 const BADGE_DEBOUNCE_MS = 300;
-const TITLE_BAR_HEIGHT = 48;
+const TITLE_BAR_HEIGHT = 40;
 const TITLE_BAR_ID = 'vk-desktop-titlebar';
+const UPDATE_PHASES = new Set([
+  'idle',
+  'checking',
+  'current',
+  'available',
+  'downloading',
+  'downloaded',
+  'error'
+]);
 
 function isTrustedPage() {
   return window.location.protocol === 'https:' && ALLOWED_HOSTS.has(window.location.hostname.toLowerCase());
@@ -93,13 +112,237 @@ function getColorLuminance(color) {
   return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
 }
 
+function isSafeHttpsUrl(value) {
+  if (!isBoundedString(value, 4096, false)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function createTitleBarButton(className, label, title = label) {
+  const button = document.createElement('button');
+  button.className = className;
+  button.type = 'button';
+  button.setAttribute('aria-label', label);
+  button.title = title;
+  return button;
+}
+
+function appendInlineMarkdown(parent, value) {
+  const text = String(value ?? '');
+  const tokenPattern = /(\[([^\]]{1,200})\]\((https:\/\/[^)\s]{1,4096})\)|`([^`\n]{1,500})`|\*\*([^*\n]{1,500})\*\*)/gu;
+  let offset = 0;
+  for (const match of text.matchAll(tokenPattern)) {
+    if (match.index > offset) parent.append(document.createTextNode(text.slice(offset, match.index)));
+    if (match[2] && isSafeHttpsUrl(match[3])) {
+      const link = document.createElement('a');
+      link.href = match[3];
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = match[2];
+      parent.append(link);
+    } else if (match[4]) {
+      const code = document.createElement('code');
+      code.textContent = match[4];
+      parent.append(code);
+    } else if (match[5]) {
+      const strong = document.createElement('strong');
+      strong.textContent = match[5];
+      parent.append(strong);
+    } else {
+      parent.append(document.createTextNode(match[0]));
+    }
+    offset = match.index + match[0].length;
+  }
+  if (offset < text.length) parent.append(document.createTextNode(text.slice(offset)));
+}
+
+function renderSafeMarkdown(container, markdown) {
+  container.replaceChildren();
+  const lines = String(markdown ?? '').slice(0, 100_000).split(/\r?\n/u);
+  let currentList = null;
+  let currentParagraph = null;
+  let codeLines = null;
+
+  const resetFlow = () => {
+    currentList = null;
+    currentParagraph = null;
+  };
+
+  const appendCodeBlock = () => {
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = codeLines.join('\n');
+    pre.append(code);
+    container.append(pre);
+    codeLines = null;
+    resetFlow();
+  };
+
+  for (const line of lines) {
+    if (/^```/u.test(line.trim())) {
+      if (codeLines) appendCodeBlock();
+      else {
+        codeLines = [];
+        resetFlow();
+      }
+      continue;
+    }
+    if (codeLines) {
+      codeLines.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      resetFlow();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/u);
+    if (heading) {
+      resetFlow();
+      const element = document.createElement(`h${Math.min(heading[1].length + 1, 4)}`);
+      appendInlineMarkdown(element, heading[2]);
+      container.append(element);
+      continue;
+    }
+
+    if (/^\s*(?:-{3,}|\*{3,})\s*$/u.test(line)) {
+      resetFlow();
+      container.append(document.createElement('hr'));
+      continue;
+    }
+
+    const listItem = line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/u);
+    if (listItem) {
+      currentParagraph = null;
+      const tagName = listItem[2] ? 'ol' : 'ul';
+      if (!currentList || currentList.tagName.toLowerCase() !== tagName) {
+        currentList = document.createElement(tagName);
+        container.append(currentList);
+      }
+      const item = document.createElement('li');
+      appendInlineMarkdown(item, listItem[3]);
+      currentList.append(item);
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.*)$/u);
+    if (quote) {
+      resetFlow();
+      const blockquote = document.createElement('blockquote');
+      appendInlineMarkdown(blockquote, quote[1]);
+      container.append(blockquote);
+      continue;
+    }
+
+    currentList = null;
+    if (!currentParagraph) {
+      currentParagraph = document.createElement('p');
+      container.append(currentParagraph);
+    } else {
+      currentParagraph.append(document.createTextNode(' '));
+    }
+    appendInlineMarkdown(currentParagraph, line.trim());
+  }
+
+  if (codeLines) appendCodeBlock();
+  if (!container.childElementCount) {
+    const empty = document.createElement('p');
+    empty.textContent = 'Для этого релиза описание пока не добавлено.';
+    container.append(empty);
+  }
+}
+
+function normalizeTitleBarWindowState(payload) {
+  if (!isPlainObject(payload)) return null;
+  if (
+    typeof payload.canGoBack !== 'boolean'
+    || typeof payload.isMaximized !== 'boolean'
+    || typeof payload.isFullScreen !== 'boolean'
+  ) return null;
+  return {
+    canGoBack: payload.canGoBack,
+    isMaximized: payload.isMaximized,
+    isFullScreen: payload.isFullScreen,
+    platform: isBoundedString(payload.platform, 16) ? payload.platform : 'win32'
+  };
+}
+
+function normalizeUpdaterSnapshot(payload) {
+  if (!isPlainObject(payload) || !UPDATE_PHASES.has(payload.phase)) return null;
+  return {
+    phase: payload.phase,
+    progress: Math.max(0, Math.min(100, Number(payload.progress) || 0)),
+    speed: isBoundedString(payload.speed, 40) ? payload.speed : '—',
+    currentVersion: isBoundedString(payload.currentVersion, 64, false) ? payload.currentVersion : '—',
+    availableVersion: isBoundedString(payload.availableVersion, 64, false)
+      ? payload.availableVersion
+      : null,
+    error: isBoundedString(payload.error, 500, false) ? payload.error : null,
+    runtimeSupported: Boolean(payload.runtimeSupported)
+  };
+}
+
+function normalizeReleaseNotesResponse(payload) {
+  if (!isPlainObject(payload)) return null;
+  const release = isPlainObject(payload.release) ? payload.release : null;
+  return {
+    currentVersion: isBoundedString(payload.currentVersion, 64, false) ? payload.currentVersion : '—',
+    status: isBoundedString(payload.status, 40, false) ? payload.status : 'error',
+    reason: isBoundedString(payload.reason, 80) ? payload.reason : '',
+    error: isBoundedString(payload.error, 500, false) ? payload.error : null,
+    release: release ? {
+      version: isBoundedString(release.version, 64, false) ? release.version : '',
+      tagName: isBoundedString(release.tagName, 64) ? release.tagName : '',
+      name: isBoundedString(release.name, 200) ? release.name : '',
+      body: isBoundedString(release.body, 100_000) ? release.body : '',
+      htmlUrl: isSafeHttpsUrl(release.htmlUrl) ? release.htmlUrl : null,
+      publishedAt: isBoundedString(release.publishedAt, 40) ? release.publishedAt : null
+    } : null
+  };
+}
+
 function initializeTitleBarBridge() {
   const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   const offsetTimers = new Set();
-  const themeTimers = new Set();
   let titleBar = null;
   let themeObserver = null;
-  let lastTheme = null;
+  let readyTimer = null;
+  let releaseRequestId = 0;
+  let releaseDialog = null;
+  let releaseDialogTitle = null;
+  let releaseDialogMeta = null;
+  let releaseDialogStatus = null;
+  let releaseDialogContent = null;
+  let releaseDialogAction = null;
+  let releaseDialogExternal = null;
+  let releaseDialogClose = null;
+  let backButton = null;
+  let maximizeButton = null;
+  let versionButton = null;
+  let versionText = null;
+  let updateDot = null;
+  let downloadPercent = null;
+  let installButton = null;
+  let previousFocus = null;
+  let windowState = {
+    canGoBack: false,
+    isMaximized: false,
+    isFullScreen: false,
+    platform: 'win32'
+  };
+  let updaterState = {
+    phase: 'idle',
+    progress: 0,
+    speed: '—',
+    currentVersion: '—',
+    availableVersion: null,
+    error: null,
+    runtimeSupported: false
+  };
 
   function detectTheme() {
     const rootStyles = getComputedStyle(document.documentElement);
@@ -125,9 +368,7 @@ function initializeTitleBarBridge() {
     if (!titleBar) return;
     const theme = detectTheme();
     titleBar.dataset.theme = theme;
-    if (theme === lastTheme) return;
-    lastTheme = theme;
-    ipcRenderer.send(CHANNELS.TITLE_BAR_THEME, theme);
+    if (releaseDialog) releaseDialog.dataset.theme = theme;
   }
 
   function offsetPageHeader() {
@@ -161,12 +402,233 @@ function initializeTitleBarBridge() {
     offsetTimers.add(timer);
   }
 
-  function scheduleThemeSync(delayMs) {
-    const timer = setTimeout(() => {
-      themeTimers.delete(timer);
-      if (lastTheme) ipcRenderer.send(CHANNELS.TITLE_BAR_THEME, lastTheme);
-    }, delayMs);
-    themeTimers.add(timer);
+  function renderWindowState() {
+    if (!titleBar) return;
+    titleBar.dataset.platform = windowState.platform;
+    titleBar.dataset.fullscreen = String(windowState.isFullScreen);
+    if (backButton) backButton.disabled = !windowState.canGoBack;
+    if (maximizeButton) {
+      maximizeButton.dataset.maximized = String(windowState.isMaximized);
+      const label = windowState.isMaximized ? 'Восстановить окно' : 'Развернуть окно';
+      maximizeButton.setAttribute('aria-label', label);
+      maximizeButton.title = label;
+    }
+  }
+
+  function renderReleaseDialogAction() {
+    if (!releaseDialogAction) return;
+    releaseDialogAction.hidden = false;
+    releaseDialogAction.dataset.action = updaterState.phase;
+    releaseDialogAction.disabled = false;
+
+    if (updaterState.phase === 'available') {
+      releaseDialogAction.textContent = 'Скачать обновление';
+    } else if (updaterState.phase === 'downloading') {
+      releaseDialogAction.textContent = `Отменить загрузку · ${Math.round(updaterState.progress)}%`;
+    } else if (updaterState.phase === 'downloaded') {
+      releaseDialogAction.textContent = 'Установить и перезапустить';
+    } else {
+      releaseDialogAction.hidden = true;
+      releaseDialogAction.dataset.action = '';
+    }
+    if (!releaseDialogAction.hidden) {
+      releaseDialogAction.setAttribute('aria-label', releaseDialogAction.textContent);
+    }
+  }
+
+  function renderUpdaterState() {
+    if (!titleBar || !versionText) return;
+    titleBar.dataset.updatePhase = updaterState.phase;
+    versionText.textContent = `v${updaterState.currentVersion}`;
+    updateDot.hidden = updaterState.phase !== 'available';
+    downloadPercent.hidden = updaterState.phase !== 'downloading';
+    installButton.hidden = updaterState.phase !== 'downloaded';
+
+    if (updaterState.phase === 'downloading') {
+      downloadPercent.textContent = `${Math.round(updaterState.progress)}%`;
+      versionButton.title = `Скачивание обновления — ${Math.round(updaterState.progress)}% (${updaterState.speed})`;
+    } else if (updaterState.phase === 'available') {
+      versionButton.title = updaterState.availableVersion
+        ? `Доступно обновление v${updaterState.availableVersion}`
+        : 'Доступно обновление';
+    } else if (updaterState.phase === 'downloaded') {
+      versionButton.title = 'Обновление скачано и готово к установке';
+    } else {
+      versionButton.title = 'Открыть список изменений';
+    }
+    versionButton.setAttribute(
+      'aria-label',
+      `${versionButton.title}. Установленная версия v${updaterState.currentVersion}`
+    );
+    renderReleaseDialogAction();
+  }
+
+  function closeReleaseDialog() {
+    if (!releaseDialog || releaseDialog.hidden) return;
+    releaseDialog.hidden = true;
+    releaseRequestId += 1;
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+      previousFocus.focus({ preventScroll: true });
+    }
+    previousFocus = null;
+  }
+
+  function setReleaseDialogLoading() {
+    releaseDialogTitle.textContent = 'Что нового';
+    releaseDialogMeta.textContent = `Установлена версия v${updaterState.currentVersion}`;
+    releaseDialogStatus.hidden = false;
+    releaseDialogStatus.textContent = 'Загружаем описание последнего релиза…';
+    releaseDialogExternal.hidden = true;
+    releaseDialogContent.replaceChildren();
+    const loading = document.createElement('p');
+    loading.className = 'vk-desktop-release__loading';
+    loading.textContent = 'Получаем данные с GitHub.';
+    releaseDialogContent.append(loading);
+    renderReleaseDialogAction();
+  }
+
+  function renderReleaseNotes(payload) {
+    const release = payload.release;
+    releaseDialogTitle.textContent = release?.name
+      || (release?.tagName ? `Изменения в ${release.tagName}` : 'Что нового');
+
+    const meta = [`Установлено: v${payload.currentVersion}`];
+    if (release?.tagName) meta.push(`Последний релиз: ${release.tagName}`);
+    if (release?.publishedAt) {
+      const timestamp = Date.parse(release.publishedAt);
+      if (Number.isFinite(timestamp)) {
+        meta.push(new Date(timestamp).toLocaleDateString('ru-RU', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        }));
+      }
+    }
+    releaseDialogMeta.textContent = meta.join(' · ');
+
+    let statusMessage = payload.error;
+    if (!statusMessage && payload.reason === 'local-newer') {
+      statusMessage = 'Установленная версия новее последнего опубликованного релиза.';
+    } else if (!statusMessage && payload.reason === 'no-release') {
+      statusMessage = 'Опубликованных релизов пока нет.';
+    }
+    releaseDialogStatus.hidden = !statusMessage;
+    releaseDialogStatus.textContent = statusMessage ?? '';
+    renderSafeMarkdown(releaseDialogContent, release?.body ?? '');
+
+    if (release?.htmlUrl) {
+      releaseDialogExternal.href = release.htmlUrl;
+      releaseDialogExternal.hidden = false;
+    } else {
+      releaseDialogExternal.hidden = true;
+      releaseDialogExternal.removeAttribute('href');
+    }
+  }
+
+  async function openReleaseDialog() {
+    if (!releaseDialog) return;
+    previousFocus = document.activeElement;
+    releaseDialog.hidden = false;
+    setReleaseDialogLoading();
+    releaseDialogClose.focus({ preventScroll: true });
+    const requestId = ++releaseRequestId;
+
+    try {
+      const response = normalizeReleaseNotesResponse(
+        await ipcRenderer.invoke(CHANNELS.UPDATE_RELEASE_NOTES)
+      );
+      if (requestId !== releaseRequestId) return;
+      if (!response) {
+        renderReleaseNotes({
+          currentVersion: updaterState.currentVersion,
+          reason: 'invalid-release-notes',
+          release: null,
+          error: 'Получен некорректный ответ от сервиса обновлений.'
+        });
+        return;
+      }
+      renderReleaseNotes(response);
+    } catch {
+      if (requestId !== releaseRequestId) return;
+      renderReleaseNotes({
+        currentVersion: updaterState.currentVersion,
+        reason: 'release-notes-failed',
+        release: null,
+        error: 'Не удалось загрузить описание релиза.'
+      });
+    }
+  }
+
+  function createReleaseDialog() {
+    releaseDialog = document.createElement('div');
+    releaseDialog.className = 'vk-desktop-release';
+    releaseDialog.hidden = true;
+    releaseDialog.setAttribute('role', 'presentation');
+
+    const card = document.createElement('section');
+    card.className = 'vk-desktop-release__card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'vk-desktop-release-title');
+
+    const header = document.createElement('header');
+    header.className = 'vk-desktop-release__header';
+    const headingGroup = document.createElement('div');
+    const eyebrow = document.createElement('span');
+    eyebrow.className = 'vk-desktop-release__eyebrow';
+    eyebrow.textContent = 'VK Desktop';
+    releaseDialogTitle = document.createElement('h2');
+    releaseDialogTitle.id = 'vk-desktop-release-title';
+    releaseDialogTitle.textContent = 'Что нового';
+    releaseDialogMeta = document.createElement('p');
+    releaseDialogMeta.className = 'vk-desktop-release__meta';
+    headingGroup.append(eyebrow, releaseDialogTitle, releaseDialogMeta);
+
+    releaseDialogClose = createTitleBarButton(
+      'vk-desktop-release__close',
+      'Закрыть список изменений'
+    );
+    const closeIcon = document.createElement('span');
+    closeIcon.className = 'vk-desktop-window-icon vk-desktop-window-icon--close';
+    closeIcon.setAttribute('aria-hidden', 'true');
+    releaseDialogClose.append(closeIcon);
+    header.append(headingGroup, releaseDialogClose);
+
+    releaseDialogStatus = document.createElement('p');
+    releaseDialogStatus.className = 'vk-desktop-release__status';
+    releaseDialogContent = document.createElement('div');
+    releaseDialogContent.className = 'vk-desktop-release__markdown';
+
+    const footer = document.createElement('footer');
+    footer.className = 'vk-desktop-release__footer';
+    releaseDialogExternal = document.createElement('a');
+    releaseDialogExternal.className = 'vk-desktop-release__external';
+    releaseDialogExternal.target = '_blank';
+    releaseDialogExternal.rel = 'noopener noreferrer';
+    releaseDialogExternal.textContent = 'Открыть релиз на GitHub ↗';
+    releaseDialogAction = createTitleBarButton(
+      'vk-desktop-release__action',
+      'Действие с обновлением'
+    );
+    footer.append(releaseDialogExternal, releaseDialogAction);
+    card.append(header, releaseDialogStatus, releaseDialogContent, footer);
+    releaseDialog.append(card);
+    document.body.append(releaseDialog);
+
+    releaseDialogClose.addEventListener('click', closeReleaseDialog);
+    releaseDialog.addEventListener('mousedown', (event) => {
+      if (event.target === releaseDialog) closeReleaseDialog();
+    });
+    releaseDialogAction.addEventListener('click', () => {
+      if (updaterState.phase === 'available') {
+        releaseDialogAction.disabled = true;
+        ipcRenderer.send(CHANNELS.UPDATE_DOWNLOAD);
+      } else if (updaterState.phase === 'downloading') {
+        ipcRenderer.send(CHANNELS.UPDATE_CANCEL);
+      } else if (updaterState.phase === 'downloaded') {
+        ipcRenderer.send(CHANNELS.UPDATE_INSTALL);
+      }
+    });
   }
 
   function mountTitleBar() {
@@ -176,18 +638,27 @@ function initializeTitleBarBridge() {
     titleBar.id = TITLE_BAR_ID;
     titleBar.setAttribute('role', 'banner');
 
-    const safeArea = document.createElement('div');
-    safeArea.className = 'vk-desktop-titlebar__safe-area';
-
-    const menuButton = document.createElement('button');
-    menuButton.className = 'vk-desktop-titlebar__menu';
-    menuButton.type = 'button';
-    menuButton.setAttribute('aria-label', 'Открыть меню VK Desktop');
-    menuButton.title = 'Меню VK Desktop';
+    const leftControls = document.createElement('div');
+    leftControls.className = 'vk-desktop-titlebar__left';
+    const menuButton = createTitleBarButton(
+      'vk-desktop-titlebar__button vk-desktop-titlebar__menu',
+      'Открыть меню VK Desktop',
+      'Меню VK Desktop'
+    );
     const menuLines = document.createElement('span');
     menuLines.className = 'vk-desktop-titlebar__menu-lines';
     menuLines.setAttribute('aria-hidden', 'true');
     menuButton.append(menuLines);
+
+    backButton = createTitleBarButton(
+      'vk-desktop-titlebar__button vk-desktop-titlebar__back',
+      'Назад'
+    );
+    const backIcon = document.createElement('span');
+    backIcon.className = 'vk-desktop-titlebar__back-icon';
+    backIcon.setAttribute('aria-hidden', 'true');
+    backButton.append(backIcon);
+    leftControls.append(menuButton, backButton);
 
     const brand = document.createElement('div');
     brand.className = 'vk-desktop-titlebar__brand';
@@ -195,14 +666,76 @@ function initializeTitleBarBridge() {
     logo.className = 'vk-desktop-titlebar__logo';
     logo.setAttribute('aria-hidden', 'true');
     const title = document.createElement('span');
+    title.className = 'vk-desktop-titlebar__title';
     title.textContent = 'ВКонтакте';
-    brand.append(logo, title);
-    safeArea.append(brand);
-    titleBar.append(safeArea, menuButton);
+    versionButton = createTitleBarButton(
+      'vk-desktop-titlebar__version',
+      'Открыть список изменений'
+    );
+    versionText = document.createElement('span');
+    versionText.className = 'vk-desktop-titlebar__version-text';
+    versionText.textContent = 'v—';
+    updateDot = document.createElement('span');
+    updateDot.className = 'vk-desktop-titlebar__update-dot';
+    updateDot.hidden = true;
+    updateDot.setAttribute('aria-hidden', 'true');
+    downloadPercent = document.createElement('span');
+    downloadPercent.className = 'vk-desktop-titlebar__download-percent';
+    downloadPercent.hidden = true;
+    versionButton.append(versionText, updateDot, downloadPercent);
+
+    installButton = createTitleBarButton(
+      'vk-desktop-titlebar__install',
+      'Установить обновление и перезапустить'
+    );
+    installButton.hidden = true;
+    const installIcon = document.createElement('span');
+    installIcon.className = 'vk-desktop-titlebar__install-icon';
+    installIcon.setAttribute('aria-hidden', 'true');
+    installButton.append(installIcon);
+    brand.append(logo, title, versionButton, installButton);
+
+    const windowControls = document.createElement('div');
+    windowControls.className = 'vk-desktop-titlebar__window-controls';
+    const minimizeButton = createTitleBarButton(
+      'vk-desktop-titlebar__window-button vk-desktop-titlebar__window-button--minimize',
+      'Свернуть окно'
+    );
+    const minimizeIcon = document.createElement('span');
+    minimizeIcon.className = 'vk-desktop-window-icon vk-desktop-window-icon--minimize';
+    minimizeIcon.setAttribute('aria-hidden', 'true');
+    minimizeButton.append(minimizeIcon);
+    maximizeButton = createTitleBarButton(
+      'vk-desktop-titlebar__window-button vk-desktop-titlebar__window-button--maximize',
+      'Развернуть окно'
+    );
+    const maximizeIcon = document.createElement('span');
+    maximizeIcon.className = 'vk-desktop-window-icon vk-desktop-window-icon--maximize';
+    maximizeIcon.setAttribute('aria-hidden', 'true');
+    maximizeButton.append(maximizeIcon);
+    const closeButton = createTitleBarButton(
+      'vk-desktop-titlebar__window-button vk-desktop-titlebar__window-button--close',
+      'Закрыть окно'
+    );
+    const closeIcon = document.createElement('span');
+    closeIcon.className = 'vk-desktop-window-icon vk-desktop-window-icon--close';
+    closeIcon.setAttribute('aria-hidden', 'true');
+    closeButton.append(closeIcon);
+    windowControls.append(minimizeButton, maximizeButton, closeButton);
+    titleBar.append(leftControls, brand, windowControls);
 
     menuButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.TITLE_BAR_MENU));
+    backButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.TITLE_BAR_BACK));
+    minimizeButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.TITLE_BAR_MINIMIZE));
+    maximizeButton.addEventListener('click', () => {
+      ipcRenderer.send(CHANNELS.TITLE_BAR_TOGGLE_MAXIMIZE);
+    });
+    closeButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.TITLE_BAR_CLOSE));
+    versionButton.addEventListener('click', () => void openReleaseDialog());
+    installButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.UPDATE_INSTALL));
     document.documentElement.classList.add('vk-desktop-titlebar-active');
     document.body.prepend(titleBar);
+    createReleaseDialog();
 
     themeObserver = new MutationObserver(updateTheme);
     themeObserver.observe(document.documentElement, {
@@ -215,9 +748,37 @@ function initializeTitleBarBridge() {
     });
     darkMediaQuery.addEventListener('change', updateTheme);
     updateTheme();
+    renderWindowState();
+    renderUpdaterState();
     for (const delay of [0, 250, 1000, 3000]) scheduleOffsetCheck(delay);
-    scheduleThemeSync(750);
+    ipcRenderer.send(CHANNELS.TITLE_BAR_READY);
+    readyTimer = setTimeout(() => ipcRenderer.send(CHANNELS.TITLE_BAR_READY), 750);
   }
+
+  function onWindowState(_event, payload) {
+    const nextState = normalizeTitleBarWindowState(payload);
+    if (!nextState) return;
+    windowState = nextState;
+    renderWindowState();
+  }
+
+  function onUpdaterState(_event, payload) {
+    const nextState = normalizeUpdaterSnapshot(payload);
+    if (!nextState) return;
+    updaterState = nextState;
+    renderUpdaterState();
+  }
+
+  function onKeyDown(event) {
+    if (event.key === 'Escape' && releaseDialog && !releaseDialog.hidden) {
+      event.preventDefault();
+      closeReleaseDialog();
+    }
+  }
+
+  ipcRenderer.on(CHANNELS.TITLE_BAR_STATE, onWindowState);
+  ipcRenderer.on(CHANNELS.UPDATE_STATE, onUpdaterState);
+  window.addEventListener('keydown', onKeyDown, true);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mountTitleBar, { once: true });
@@ -226,12 +787,15 @@ function initializeTitleBarBridge() {
   }
 
   window.addEventListener('beforeunload', () => {
+    releaseRequestId += 1;
+    if (readyTimer) clearTimeout(readyTimer);
     themeObserver?.disconnect();
     darkMediaQuery.removeEventListener('change', updateTheme);
     for (const timer of offsetTimers) clearTimeout(timer);
     offsetTimers.clear();
-    for (const timer of themeTimers) clearTimeout(timer);
-    themeTimers.clear();
+    ipcRenderer.removeListener(CHANNELS.TITLE_BAR_STATE, onWindowState);
+    ipcRenderer.removeListener(CHANNELS.UPDATE_STATE, onUpdaterState);
+    window.removeEventListener('keydown', onKeyDown, true);
   }, { once: true });
 }
 

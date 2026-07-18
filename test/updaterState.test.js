@@ -66,3 +66,18 @@ test('promotes an in-flight background check when the user requests it manually'
   assert.equal(state.phase, UPDATE_PHASES.CHECKING);
   assert.equal(state.manual, true);
 });
+
+test('keeps a postponed update visible after cancelling its download', () => {
+  let state = transitionUpdaterState(createUpdaterState(), {
+    type: 'UPDATE_AVAILABLE',
+    checkedAt: '2026-07-18T12:00:00.000Z',
+    currentVersion: '1.2.0',
+    remoteVersion: '1.3.0',
+    reason: 'remote-newer'
+  });
+  state = transitionUpdaterState(state, { type: 'DOWNLOAD_STARTED' });
+  state = transitionUpdaterState(state, { type: 'CANCELLED' });
+
+  assert.equal(state.phase, UPDATE_PHASES.AVAILABLE);
+  assert.equal(state.lastCheck.remoteVersion, '1.3.0');
+});

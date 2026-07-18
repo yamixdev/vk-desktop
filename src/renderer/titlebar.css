@@ -1,5 +1,5 @@
 :root.vk-desktop-titlebar-active {
-  --vk-desktop-titlebar-height: 48px;
+  --vk-desktop-titlebar-height: 40px;
 }
 
 :root.vk-desktop-titlebar-active body {
@@ -9,15 +9,21 @@
 }
 
 #vk-desktop-titlebar {
+  --vk-desktop-titlebar-bg: #f0f2f5;
+  --vk-desktop-titlebar-fg: #141414;
+  --vk-desktop-titlebar-muted: #6d7885;
+  --vk-desktop-titlebar-hover: rgb(0 0 0 / 7%);
+  --vk-desktop-titlebar-pressed: rgb(0 0 0 / 11%);
+  --vk-desktop-titlebar-border: rgb(0 0 0 / 10%);
   -webkit-app-region: drag;
-  app-region: drag;
   align-items: center;
-  background: #f0f2f5;
-  border-bottom: 1px solid rgb(0 0 0 / 10%);
+  app-region: drag;
+  background: var(--vk-desktop-titlebar-bg);
+  border-bottom: 1px solid var(--vk-desktop-titlebar-border);
   box-sizing: border-box;
-  color: #141414;
+  color: var(--vk-desktop-titlebar-fg);
   display: flex;
-  font-family: "Segoe UI", Arial, sans-serif;
+  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
   height: var(--vk-desktop-titlebar-height);
   inset: 0 0 auto;
   position: fixed;
@@ -26,75 +32,92 @@
 }
 
 #vk-desktop-titlebar[data-theme="dark"] {
-  background: #19191a;
-  border-bottom-color: rgb(255 255 255 / 12%);
-  color: #f2f3f5;
+  --vk-desktop-titlebar-bg: #19191a;
+  --vk-desktop-titlebar-fg: #f2f3f5;
+  --vk-desktop-titlebar-muted: #aeb7c2;
+  --vk-desktop-titlebar-hover: rgb(255 255 255 / 9%);
+  --vk-desktop-titlebar-pressed: rgb(255 255 255 / 14%);
+  --vk-desktop-titlebar-border: rgb(255 255 255 / 11%);
 }
 
-.vk-desktop-titlebar__safe-area {
-  align-items: center;
-  display: flex;
-  height: 100%;
-  justify-content: center;
-  margin-left: env(titlebar-area-x, 0);
-  pointer-events: none;
-  width: env(titlebar-area-width, 100%);
-}
-
-.vk-desktop-titlebar__brand {
-  align-items: center;
-  display: inline-flex;
-  font-size: 16px;
-  font-weight: 600;
-  gap: 8px;
-  line-height: 1;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-.vk-desktop-titlebar__logo {
-  -webkit-user-drag: none;
-  background-image: var(--vk-desktop-titlebar-logo);
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
-  display: block;
-  height: 26px;
-  width: 26px;
-}
-
-.vk-desktop-titlebar__menu {
+#vk-desktop-titlebar button {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+  font: inherit;
+}
+
+.vk-desktop-titlebar__left,
+.vk-desktop-titlebar__window-controls {
+  align-items: stretch;
+  display: flex;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  z-index: 2;
+}
+
+.vk-desktop-titlebar__left {
+  left: 0;
+}
+
+.vk-desktop-titlebar__window-controls {
+  right: 0;
+}
+
+#vk-desktop-titlebar[data-platform="darwin"] .vk-desktop-titlebar__window-controls {
+  display: none;
+}
+
+.vk-desktop-titlebar__button,
+.vk-desktop-titlebar__window-button,
+.vk-desktop-titlebar__install,
+.vk-desktop-titlebar__version,
+.vk-desktop-release__close,
+.vk-desktop-release__action {
   align-items: center;
   appearance: none;
   background: transparent;
   border: 0;
+  box-sizing: border-box;
   color: inherit;
-  cursor: default;
-  display: flex;
-  height: 100%;
+  display: inline-flex;
   justify-content: center;
-  left: env(titlebar-area-x, 0);
   margin: 0;
   padding: 0;
-  pointer-events: auto;
-  position: absolute;
-  top: 0;
-  width: 48px;
 }
 
-.vk-desktop-titlebar__menu:hover {
-  background: rgb(0 0 0 / 8%);
+.vk-desktop-titlebar__button,
+.vk-desktop-titlebar__window-button {
+  cursor: default;
+  height: 39px;
+  width: 40px;
 }
 
-#vk-desktop-titlebar[data-theme="dark"] .vk-desktop-titlebar__menu:hover {
-  background: rgb(255 255 255 / 10%);
+.vk-desktop-titlebar__button:hover,
+.vk-desktop-titlebar__window-button:hover {
+  background: var(--vk-desktop-titlebar-hover);
 }
 
-.vk-desktop-titlebar__menu:focus-visible {
+.vk-desktop-titlebar__button:active,
+.vk-desktop-titlebar__window-button:active {
+  background: var(--vk-desktop-titlebar-pressed);
+}
+
+.vk-desktop-titlebar__button:focus-visible,
+.vk-desktop-titlebar__window-button:focus-visible,
+.vk-desktop-titlebar__version:focus-visible,
+.vk-desktop-titlebar__install:focus-visible,
+.vk-desktop-release__close:focus-visible,
+.vk-desktop-release__action:focus-visible,
+.vk-desktop-release__external:focus-visible {
   outline: 2px solid #2688eb;
-  outline-offset: -3px;
+  outline-offset: -2px;
+}
+
+.vk-desktop-titlebar__button:disabled {
+  background: transparent;
+  color: var(--vk-desktop-titlebar-muted);
+  opacity: 0.35;
 }
 
 .vk-desktop-titlebar__menu-lines,
@@ -104,19 +127,500 @@
   border-radius: 1px;
   content: "";
   display: block;
-  height: 2px;
+  height: 1.5px;
   position: absolute;
-  width: 18px;
+  width: 16px;
 }
 
 .vk-desktop-titlebar__menu-lines::before {
-  transform: translateY(-6px);
+  transform: translateY(-5px);
 }
 
 .vk-desktop-titlebar__menu-lines::after {
-  transform: translateY(6px);
+  transform: translateY(5px);
+}
+
+.vk-desktop-titlebar__back-icon {
+  border-bottom: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  display: block;
+  height: 8px;
+  margin-left: 3px;
+  transform: rotate(45deg);
+  width: 8px;
+}
+
+.vk-desktop-titlebar__brand {
+  -webkit-app-region: drag;
+  align-items: center;
+  app-region: drag;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 7px;
+  left: 50%;
+  line-height: 1;
+  max-width: calc(100% - 280px);
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.vk-desktop-titlebar__logo {
+  -webkit-user-drag: none;
+  background-image: var(--vk-desktop-titlebar-logo);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  display: block;
+  flex: 0 0 auto;
+  height: 22px;
+  width: 22px;
+}
+
+.vk-desktop-titlebar__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vk-desktop-titlebar__version {
+  background: rgb(0 0 0 / 6%);
+  border: 1px solid rgb(0 0 0 / 6%);
+  border-radius: 999px;
+  color: var(--vk-desktop-titlebar-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 5px;
+  height: 22px;
+  letter-spacing: 0.01em;
+  padding: 0 7px;
+}
+
+#vk-desktop-titlebar[data-theme="dark"] .vk-desktop-titlebar__version {
+  background: rgb(255 255 255 / 7%);
+  border-color: rgb(255 255 255 / 5%);
+}
+
+.vk-desktop-titlebar__version:hover {
+  background: rgb(38 136 235 / 12%);
+  border-color: rgb(38 136 235 / 20%);
+  color: #2688eb;
+}
+
+.vk-desktop-titlebar__update-dot {
+  background: #f2b035;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--vk-desktop-titlebar-bg);
+  height: 7px;
+  width: 7px;
+}
+
+.vk-desktop-titlebar__download-percent {
+  color: #2688eb;
+  font-variant-numeric: tabular-nums;
+}
+
+.vk-desktop-titlebar__download-percent::before {
+  color: var(--vk-desktop-titlebar-muted);
+  content: "·";
+  margin-right: 5px;
+}
+
+.vk-desktop-titlebar__install {
+  background: #2688eb;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  height: 22px;
+  width: 22px;
+}
+
+.vk-desktop-titlebar__install:hover {
+  background: #0077d6;
+}
+
+.vk-desktop-titlebar__install-icon {
+  border-bottom: 1.5px solid currentColor;
+  display: block;
+  height: 10px;
+  position: relative;
+  width: 11px;
+}
+
+.vk-desktop-titlebar__install-icon::before {
+  border-bottom: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  content: "";
+  height: 5px;
+  left: 3px;
+  position: absolute;
+  top: 0;
+  transform: rotate(45deg);
+  width: 5px;
+}
+
+.vk-desktop-window-icon {
+  color: currentColor;
+  display: block;
+  position: relative;
+}
+
+.vk-desktop-window-icon--minimize {
+  border-bottom: 1px solid currentColor;
+  height: 1px;
+  width: 10px;
+}
+
+.vk-desktop-window-icon--maximize {
+  border: 1px solid currentColor;
+  box-sizing: border-box;
+  height: 10px;
+  width: 10px;
+}
+
+.vk-desktop-titlebar__window-button[data-maximized="true"] .vk-desktop-window-icon--maximize {
+  border: 0;
+  height: 11px;
+  width: 11px;
+}
+
+.vk-desktop-titlebar__window-button[data-maximized="true"] .vk-desktop-window-icon--maximize::before,
+.vk-desktop-titlebar__window-button[data-maximized="true"] .vk-desktop-window-icon--maximize::after {
+  border: 1px solid currentColor;
+  box-sizing: border-box;
+  content: "";
+  height: 8px;
+  position: absolute;
+  width: 8px;
+}
+
+.vk-desktop-titlebar__window-button[data-maximized="true"] .vk-desktop-window-icon--maximize::before {
+  right: 0;
+  top: 0;
+}
+
+.vk-desktop-titlebar__window-button[data-maximized="true"] .vk-desktop-window-icon--maximize::after {
+  background: var(--vk-desktop-titlebar-bg);
+  bottom: 0;
+  left: 0;
+}
+
+.vk-desktop-window-icon--close {
+  height: 12px;
+  width: 12px;
+}
+
+.vk-desktop-window-icon--close::before,
+.vk-desktop-window-icon--close::after {
+  background: currentColor;
+  content: "";
+  height: 1px;
+  left: 0;
+  position: absolute;
+  top: 5.5px;
+  width: 12px;
+}
+
+.vk-desktop-window-icon--close::before {
+  transform: rotate(45deg);
+}
+
+.vk-desktop-window-icon--close::after {
+  transform: rotate(-45deg);
+}
+
+.vk-desktop-titlebar__window-button--close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.vk-desktop-titlebar__window-button--close:active {
+  background: #c50f1f;
 }
 
 .vk-desktop-titlebar-offset {
   top: var(--vk-desktop-titlebar-height) !important;
+}
+
+.vk-desktop-release[hidden],
+.vk-desktop-release [hidden],
+#vk-desktop-titlebar [hidden] {
+  display: none !important;
+}
+
+.vk-desktop-release {
+  --vk-desktop-release-bg: #fff;
+  --vk-desktop-release-surface: #f5f6f8;
+  --vk-desktop-release-fg: #141414;
+  --vk-desktop-release-muted: #6d7885;
+  --vk-desktop-release-border: rgb(0 0 0 / 10%);
+  align-items: center;
+  background: rgb(0 0 0 / 34%);
+  color: var(--vk-desktop-release-fg);
+  display: flex;
+  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  inset: var(--vk-desktop-titlebar-height) 0 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 2147483645;
+}
+
+.vk-desktop-release[data-theme="dark"] {
+  --vk-desktop-release-bg: #222223;
+  --vk-desktop-release-surface: #2b2b2d;
+  --vk-desktop-release-fg: #f2f3f5;
+  --vk-desktop-release-muted: #aeb7c2;
+  --vk-desktop-release-border: rgb(255 255 255 / 12%);
+  background: rgb(0 0 0 / 52%);
+}
+
+.vk-desktop-release__card {
+  background: var(--vk-desktop-release-bg);
+  border: 1px solid var(--vk-desktop-release-border);
+  border-radius: 18px;
+  box-shadow: 0 22px 70px rgb(0 0 0 / 28%);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  max-height: min(720px, calc(100vh - var(--vk-desktop-titlebar-height) - 48px));
+  overflow: hidden;
+  width: min(680px, calc(100vw - 48px));
+}
+
+.vk-desktop-release__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 24px 24px 16px;
+}
+
+.vk-desktop-release__eyebrow {
+  color: #2688eb;
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-bottom: 7px;
+  text-transform: uppercase;
+}
+
+.vk-desktop-release__header h2 {
+  color: inherit;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.vk-desktop-release__meta {
+  color: var(--vk-desktop-release-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
+
+.vk-desktop-release__close {
+  background: var(--vk-desktop-release-surface);
+  border-radius: 9px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 32px;
+  width: 32px;
+}
+
+.vk-desktop-release__close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.vk-desktop-release__status {
+  background: rgb(38 136 235 / 10%);
+  border: 1px solid rgb(38 136 235 / 18%);
+  border-radius: 10px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 24px 4px;
+  padding: 10px 12px;
+}
+
+.vk-desktop-release__markdown {
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.58;
+  min-height: 120px;
+  overflow: auto;
+  padding: 12px 24px 24px;
+  user-select: text;
+}
+
+.vk-desktop-release__markdown h2,
+.vk-desktop-release__markdown h3,
+.vk-desktop-release__markdown h4 {
+  color: inherit;
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 22px 0 8px;
+}
+
+.vk-desktop-release__markdown h2 {
+  font-size: 18px;
+}
+
+.vk-desktop-release__markdown h3,
+.vk-desktop-release__markdown h4 {
+  font-size: 15px;
+}
+
+.vk-desktop-release__markdown p {
+  margin: 0 0 12px;
+}
+
+.vk-desktop-release__markdown ul,
+.vk-desktop-release__markdown ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.vk-desktop-release__markdown li + li {
+  margin-top: 5px;
+}
+
+.vk-desktop-release__markdown a,
+.vk-desktop-release__external {
+  color: #2688eb;
+  text-decoration: none;
+}
+
+.vk-desktop-release__markdown a:hover,
+.vk-desktop-release__external:hover {
+  text-decoration: underline;
+}
+
+.vk-desktop-release__markdown code {
+  background: var(--vk-desktop-release-surface);
+  border: 1px solid var(--vk-desktop-release-border);
+  border-radius: 5px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+  padding: 1px 5px;
+}
+
+.vk-desktop-release__markdown pre {
+  background: var(--vk-desktop-release-surface);
+  border: 1px solid var(--vk-desktop-release-border);
+  border-radius: 10px;
+  margin: 0 0 14px;
+  overflow: auto;
+  padding: 13px 14px;
+}
+
+.vk-desktop-release__markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.vk-desktop-release__markdown blockquote {
+  border-left: 3px solid #2688eb;
+  color: var(--vk-desktop-release-muted);
+  margin: 0 0 14px;
+  padding: 2px 0 2px 13px;
+}
+
+.vk-desktop-release__markdown hr {
+  border: 0;
+  border-top: 1px solid var(--vk-desktop-release-border);
+  margin: 20px 0;
+}
+
+.vk-desktop-release__loading {
+  color: var(--vk-desktop-release-muted);
+}
+
+.vk-desktop-release__footer {
+  align-items: center;
+  background: var(--vk-desktop-release-surface);
+  border-top: 1px solid var(--vk-desktop-release-border);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 12px 24px;
+}
+
+.vk-desktop-release__external {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vk-desktop-release__action {
+  background: #2688eb;
+  border-radius: 9px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 0 15px;
+}
+
+.vk-desktop-release__action:hover {
+  background: #0077d6;
+}
+
+.vk-desktop-release__action[data-action="downloading"] {
+  background: transparent;
+  border: 1px solid var(--vk-desktop-release-border);
+  color: var(--vk-desktop-release-fg);
+}
+
+.vk-desktop-release__action[data-action="downloading"]:hover {
+  background: rgb(232 17 35 / 10%);
+  border-color: rgb(232 17 35 / 28%);
+  color: #d31626;
+}
+
+.vk-desktop-release__action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+@media (width <= 860px) {
+  .vk-desktop-titlebar__brand {
+    max-width: calc(100% - 240px);
+  }
+
+  .vk-desktop-release {
+    padding: 16px;
+  }
+
+  .vk-desktop-release__card {
+    max-height: calc(100vh - var(--vk-desktop-titlebar-height) - 32px);
+    width: calc(100vw - 32px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .vk-desktop-release__card {
+    animation: vk-desktop-release-enter 120ms ease-out;
+  }
+
+  @keyframes vk-desktop-release-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.99);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
 }
