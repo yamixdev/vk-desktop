@@ -8,6 +8,11 @@
   padding-top: var(--vk-desktop-titlebar-height) !important;
 }
 
+:root.vk-desktop-titlebar-active::-webkit-scrollbar-track,
+:root.vk-desktop-titlebar-active body::-webkit-scrollbar-track {
+  margin-top: var(--vk-desktop-titlebar-height);
+}
+
 #vk-desktop-titlebar {
   --vk-desktop-titlebar-bg: #f0f2f5;
   --vk-desktop-titlebar-fg: #141414;
