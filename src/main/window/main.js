@@ -1,68 +1,65 @@
-import { BrowserWindow, shell, screen, app } from 'electron';
-import path from 'path';
-import fs from 'fs';
-import { resolvePath, getRootPath, getUnpackedPath } from '../utils.js';
-import { TRUSTED_DOMAINS, USER_AGENT, isTrustedDomain } from '../../shared/constants.js';
+import { app, BrowserWindow, screen } from 'electron';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
+import { USER_AGENT } from '../../shared/constants.js';
+import { APP_PAGE_URLS, isAppPageUrl } from '../../shared/appProtocolPolicy.js';
+import {
+  classifyNavigationUrl,
+  getExternalRedirectTarget,
+  isInternalNavigationUrl,
+  isPrivilegedRendererUrl
+} from '../../shared/urlPolicy.js';
+import { IPC_CHANNELS } from '../../shared/ipcSchemas.js';
+import { configureSessionSecurity } from '../security/session.js';
+import { getRootPath, getUnpackedPath, resolvePath } from '../utils.js';
+import { normalizeWindowState } from './state.js';
 
-/**
- * Создает главное окно приложения VK Desktop
- *
- * @description Выполняется в Main Process
- * @param {import('../config/manager.js').default} configManager - Менеджер конфигурации
- * @param {string} targetDomain - Целевой домен (vk.ru или vk.com)
- * @returns {Promise<BrowserWindow>}
- */
-export async function createMainWindow(configManager, targetDomain) {
+const MAX_CRASH_RELOADS = 3;
+const CRASH_WINDOW_MS = 2 * 60 * 1000;
+
+let trustedPageCssPromise = null;
+let musicMonitorSourcePromise = null;
+
+function getTrustedPageCss() {
+  trustedPageCssPromise ??= fsPromises.readFile(resolvePath('../renderer/vk-overrides.css'), 'utf8');
+  return trustedPageCssPromise;
+}
+
+function getMusicMonitorSource() {
+  musicMonitorSourcePromise ??= fsPromises.readFile(resolvePath('../renderer/music-monitor.cjs'), 'utf8');
+  return musicMonitorSourcePromise;
+}
+
+function getInitialUrl(domain) {
+  const section = process.argv.find((argument) => argument.startsWith('--section='))?.split('=')[1];
+  const paths = { music: '/music', im: '/im', feed: '/feed' };
+  return `https://${domain}${paths[section] ?? ''}`;
+}
+
+function getIconPath() {
+  const unpackedIcon = path.join(getUnpackedPath(), 'assets', 'icon.ico');
+  return fs.existsSync(unpackedIcon)
+    ? unpackedIcon
+    : path.join(getRootPath(), 'assets', 'icon.ico');
+}
+
+export async function createMainWindow(configManager, targetDomain, { openExternalUrl }) {
   const config = configManager.get();
-  const state = config.windowState || {};
-
-  const { width: sWidth, height: sHeight } = screen.getPrimaryDisplay().workAreaSize;
-  const width = state.width || Math.round(sWidth * 0.8);
-  const height = state.height || Math.round(sHeight * 0.9);
-  
-  // Настройки производительности в зависимости от профиля
-  const profile = config.profile || 'balanced';
-  const performanceSettings = {
-    balanced: {
-      backgroundThrottling: true,  // Замедляем в фоне
-      paintWhenInitiallyHidden: true,
-      webgl: true,
-      hardwareAcceleration: true
-    },
-    performance: {
-      backgroundThrottling: false, // Не замедляем (для музыки в фоне)
-      paintWhenInitiallyHidden: true,
-      webgl: true,
-      hardwareAcceleration: true
-    },
-    powersave: {
-      backgroundThrottling: true,  // Сильно замедляем в фоне
-      paintWhenInitiallyHidden: false,
-      webgl: false, // Отключаем WebGL для экономии
-      hardwareAcceleration: true
-    }
-  };
-  
-  const settings = performanceSettings[profile] || performanceSettings.balanced;
-  console.log(`[Window] Performance profile: ${profile}`, settings);
-
-  // Иконка может быть в asar или unpacked — пробуем оба варианта
-  let iconPath = path.join(getRootPath(), 'assets/icon.ico');
-  try {
-    // В production иконка может быть в unpacked
-    const unpackedIcon = path.join(getUnpackedPath(), 'assets/icon.ico');
-    if (fs.existsSync(unpackedIcon)) {
-      iconPath = unpackedIcon;
-    }
-  } catch (e) {
-    // Используем путь по умолчанию
-  }
-
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const state = normalizeWindowState(
+    config.windowState,
+    screen.getAllDisplays(),
+    primaryDisplay.workArea
+  );
   const win = new BrowserWindow({
-    width, height,
-    x: state.x, y: state.y,
-    minWidth: 800, minHeight: 600,
-    icon: iconPath,
+    width: state.width,
+    height: state.height,
+    ...(Number.isFinite(state.x) ? { x: state.x } : {}),
+    ...(Number.isFinite(state.y) ? { y: state.y } : {}),
+    minWidth: 800,
+    minHeight: 600,
+    icon: getIconPath(),
     backgroundColor: '#19191a',
     show: false,
     frame: true,
@@ -70,263 +67,201 @@ export async function createMainWindow(configManager, targetDomain) {
       preload: resolvePath('../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: settings.backgroundThrottling,
-      spellcheck: true,
       sandbox: true,
-      webgl: settings.webgl,
-      // Отключаем лишние функции для экономии памяти
-      enableWebSQL: false,
-      v8CacheOptions: 'code' // Кэшируем скомпилированный код
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      backgroundThrottling: true,
+      navigateOnDragDrop: false,
+      spellcheck: true,
+      webviewTag: false,
+      v8CacheOptions: 'code'
     }
   });
 
   if (state.isMaximized) win.maximize();
-
   win.webContents.setUserAgent(USER_AGENT);
-  win.setMenuBarVisibility(true); 
+  win.setMenuBarVisibility(true);
+  const windowSession = win.webContents.session;
+  configureSessionSecurity(windowSession, () => win);
 
-  // --- ЛОГИКА ОКОН (Все ссылки в одном окне) ---
-  // ИЗМЕНЕНО: добавлена обработка ошибок при парсинге URL
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      // Используем функцию isTrustedDomain из constants.js
-      if (isTrustedDomain(url)) {
-        win.loadURL(url);
-        return { action: 'deny' };
+  let lastTrustedUrl = getInitialUrl(targetDomain);
+  let resizeTimer = null;
+  let showFallbackTimer = null;
+  let crashTimestamps = [];
+
+  const openOfflinePage = async () => {
+    if (win.isDestroyed()) return;
+    const query = new URLSearchParams({ target: lastTrustedUrl });
+    await win.loadURL(`${APP_PAGE_URLS.offline}?${query}`).catch(() => undefined);
+  };
+
+  const handleBlockedNavigation = (event, targetUrl) => {
+    const redirectTarget = getExternalRedirectTarget(targetUrl);
+    if (redirectTarget) {
+      event.preventDefault();
+      void openExternalUrl(redirectTarget).catch((error) => {
+        console.warn('[Window] Failed to open redirected URL:', error.message);
+      });
+      return;
+    }
+    if (isInternalNavigationUrl(targetUrl) || isAppPageUrl(targetUrl)) return;
+    event.preventDefault();
+    const classification = classifyNavigationUrl(targetUrl);
+    if (classification === 'external' || classification === 'external-confirmation') {
+      void openExternalUrl(targetUrl).catch((error) => {
+        console.warn('[Window] Failed to open external URL:', error.message);
+      });
+      if (getExternalRedirectTarget(win.webContents.getURL())) {
+        setTimeout(() => {
+          if (!win.isDestroyed()) void win.loadURL(lastTrustedUrl).catch(() => openOfflinePage());
+        }, 100);
       }
-      shell.openExternal(url);
-    } catch (error) {
-      console.warn('[Window] Invalid URL in setWindowOpenHandler:', url, error.message);
-      // При ошибке парсинга открываем внешне для безопасности
-      shell.openExternal(url).catch(() => {});
+    }
+  };
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const redirectTarget = getExternalRedirectTarget(url);
+    if (redirectTarget) {
+      void openExternalUrl(redirectTarget).catch(() => undefined);
+    } else if (isInternalNavigationUrl(url)) {
+      void win.loadURL(url).catch(() => undefined);
+    } else {
+      const classification = classifyNavigationUrl(url);
+      if (classification === 'external' || classification === 'external-confirmation') {
+        void openExternalUrl(url).catch(() => undefined);
+      }
     }
     return { action: 'deny' };
   });
+  win.webContents.on('will-navigate', handleBlockedNavigation);
+  win.webContents.on('will-redirect', handleBlockedNavigation);
 
-  win.webContents.on('will-navigate', (event, url) => {
+  win.webContents.on('did-navigate', (_event, targetUrl) => {
+    if (isInternalNavigationUrl(targetUrl) && !getExternalRedirectTarget(targetUrl)) {
+      lastTrustedUrl = targetUrl;
+    }
+  });
+
+  win.webContents.on('did-fail-load', (
+    _event,
+    errorCode,
+    errorDescription,
+    validatedUrl,
+    isMainFrame
+  ) => {
+    if (!isMainFrame || errorCode === -3 || win.isDestroyed()) return;
+    if (isAppPageUrl(validatedUrl)) {
+      console.error('[Window] App-owned error page failed to load:', errorCode, errorDescription);
+      return;
+    }
+    console.warn('[Window] Main frame load failed:', errorCode, errorDescription);
+    void openOfflinePage();
+  });
+
+  win.webContents.on('did-finish-load', async () => {
+    const finishedUrl = win.webContents.getURL();
+    if (win.isDestroyed() || !isPrivilegedRendererUrl(finishedUrl)) return;
     try {
-      // Используем функцию isTrustedDomain из constants.js
-      if (!isTrustedDomain(url) && url !== win.webContents.getURL()) {
-        event.preventDefault();
-        shell.openExternal(url);
-      }
+      const [css, musicMonitorSource] = await Promise.all([
+        getTrustedPageCss(),
+        getMusicMonitorSource()
+      ]);
+      if (win.isDestroyed() || win.webContents.getURL() !== finishedUrl) return;
+      await win.webContents.insertCSS(css, { cssOrigin: 'user' });
+      if (win.isDestroyed() || win.webContents.getURL() !== finishedUrl) return;
+      await win.webContents.executeJavaScript(musicMonitorSource, true);
+      win.webContents.send(IPC_CHANNELS.PERFORMANCE_PROFILE, configManager.get().profile);
     } catch (error) {
-      console.warn('[Window] Invalid URL in will-navigate:', url, error.message);
-      event.preventDefault();
+      console.warn('[Window] Trusted-page enhancements failed:', error.message);
     }
   });
 
-  // --- Экран "NET INTERNETA" ---
-  win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-      if (errorCode === -3) return;
-      console.log('[Window] Load failed:', errorDescription);
-      const html = `<html><head><meta charset="utf-8"><style>body{background:#19191a;color:#e1e3e6;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;user-select:none;margin:0}h2{margin-bottom:10px}p{color:#828282;margin-bottom:20px}.btn{padding:10px 20px;background:#e1e3e6;color:#19191a;border:none;border-radius:8px;cursor:pointer;font-weight:bold;transition:opacity 0.2s}.btn:hover{opacity:0.8}</style></head><body><h2>Нет соединения</h2><p>Проверьте подключение к интернету.</p><button class="btn" onclick="location.reload()">Попробовать снова</button><script>setInterval(()=>{if(navigator.onLine)location.reload()},5000)</script></body></html>`;
-      win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html).toString('base64')}`);
-  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    if (!['crashed', 'killed', 'oom'].includes(details.reason) || win.isDestroyed()) return;
+    const now = Date.now();
+    crashTimestamps = crashTimestamps.filter((timestamp) => now - timestamp < CRASH_WINDOW_MS);
+    crashTimestamps.push(now);
 
-  // --- Обработка крашей renderer process ---
-  win.webContents.on('render-process-gone', (event, details) => {
-    console.error('[Window] Renderer process gone:', details.reason, details.exitCode);
-    
-    // Если краш — пробуем перезагрузить страницу
-    if (details.reason === 'crashed' || details.reason === 'killed') {
-      console.log('[Window] Attempting to reload after crash...');
+    if (crashTimestamps.length <= MAX_CRASH_RELOADS) {
+      const delayMs = Math.min(1000 * (2 ** (crashTimestamps.length - 1)), 8000);
       setTimeout(() => {
-        if (!win.isDestroyed()) {
-          win.reload();
-        }
-      }, 1000);
+        if (!win.isDestroyed()) void win.loadURL(lastTrustedUrl).catch(() => openOfflinePage());
+      }, delayMs);
+      return;
     }
+
+    const query = new URLSearchParams({ target: lastTrustedUrl, reason: details.reason });
+    void win.loadURL(`${APP_PAGE_URLS.error}?${query}`).catch(() => undefined);
   });
 
-  // --- Обработка unresponsive ---
-  win.webContents.on('unresponsive', () => {
-    console.warn('[Window] Page became unresponsive');
-  });
+  win.webContents.on('unresponsive', () => console.warn('[Window] Renderer is unresponsive'));
+  win.webContents.on('responsive', () => console.log('[Window] Renderer recovered'));
 
-  win.webContents.on('responsive', () => {
-    console.log('[Window] Page became responsive again');
-  });
-
-  // Загрузки
-  win.webContents.session.on('will-download', (event, item, webContents) => {
-      item.setSaveDialogOptions({ title: 'Сохранить файл', defaultPath: item.getFilename() });
-      item.on('updated', (event, state) => {
-          if (state === 'progressing' && item.getTotalBytes() > 0) {
-              win.setProgressBar(item.getReceivedBytes() / item.getTotalBytes());
-          }
-      });
-      item.on('done', (event, state) => { win.setProgressBar(-1); });
-  });
-
-  win.webContents.session.setPermissionRequestHandler((wc, p, cb) => {
-    cb(['notifications', 'media', 'fullscreen', 'download'].includes(p));
-  });
-
-  // Taskbar кнопки (только Windows)
-  // Требуют иконки prev.png, play.png, next.png в папке assets
-  // TODO: добавить иконки для работы thumbar buttons
-  // РЕШИЛ НЕ ВНЕДРЯТЬ ЭТО ПОКА ЧТО, Т.К РАБОТАЕТ НЕ ВСЕГДА СТАБИЛЬНО
-  /*
-  if (process.platform === 'win32') {
-    try {
-      const fs = require('fs');
-      const asset = (f) => {
-        const unpackedPath = path.join(getUnpackedPath(), 'assets', f);
-        const regularPath = path.join(getRootPath(), 'assets', f);
-        if (fs.existsSync(unpackedPath)) return unpackedPath;
-        if (fs.existsSync(regularPath)) return regularPath;
-        return null;
-      };
-      
-      const prevIcon = asset('prev.png');
-      const playIcon = asset('play.png');
-      const nextIcon = asset('next.png');
-      
-      // Устанавливаем только если все иконки есть
-      if (prevIcon && playIcon && nextIcon) {
-        win.setThumbarButtons([
-          { tooltip: 'Prev', icon: prevIcon, click: () => win.webContents.send('media:control', 'prev') },
-          { tooltip: 'Play/Pause', icon: playIcon, click: () => win.webContents.send('media:control', 'play_pause') },
-          { tooltip: 'Next', icon: nextIcon, click: () => win.webContents.send('media:control', 'next') }
-        ]);
-        console.log('[Window] Thumbar buttons set');
-      } else {
-        console.log('[Window] Thumbar buttons skipped - missing icons');
+  const onWillDownload = (_event, item, webContents) => {
+    if (webContents !== win.webContents) return;
+    item.setSaveDialogOptions({ title: 'Сохранить файл', defaultPath: item.getFilename() });
+    item.on('updated', (_downloadEvent, downloadState) => {
+      if (downloadState === 'progressing' && item.getTotalBytes() > 0 && !win.isDestroyed()) {
+        win.setProgressBar(item.getReceivedBytes() / item.getTotalBytes());
       }
-    } catch (e) {
-      console.warn('[Window] Failed to set thumbar buttons:', e.message);
-    }
-  }
-  */
+    });
+    item.once('done', () => {
+      if (!win.isDestroyed()) win.setProgressBar(-1);
+    });
+  };
+  windowSession.on('will-download', onWillDownload);
 
-  const loadContent = async () => {
-    try {
-      let url = `https://${targetDomain}`;
-      const args = process.argv;
-      if (args.includes('--section=music')) url += '/music';
-      else if (args.includes('--section=im')) url += '/im';
-      else if (args.includes('--section=feed')) url += '/feed';
-      console.log(`[Window] Loading: ${url}`);
-      await win.loadURL(url);
-    } catch (e) {
-      if (win.isDestroyed()) return;
-      try { await win.loadURL('https://vk.com'); } catch (err2) {}
+  const showWindow = () => {
+    if (showFallbackTimer) clearTimeout(showFallbackTimer);
+    showFallbackTimer = null;
+    if (!win.isDestroyed()) {
+      win.show();
+      win.focus();
     }
   };
-  loadContent();
+  win.once('ready-to-show', showWindow);
+  showFallbackTimer = setTimeout(showWindow, 10000);
 
-  win.once('ready-to-show', () => {
-    if (!win.isDestroyed()) { win.show(); win.focus(); }
-  });
-
-  // Таймер вынесен в общую область видимости для очистки
-  let resizeTimer = null;
-  
-  // === РЕЖИМ ЭФФЕКТИВНОСТИ ===
-  // Когда окно скрыто (в трее), снижаем нагрузку на систему
-  let isEfficiencyMode = false;
-  
-  const enableEfficiencyMode = () => {
-    if (isEfficiencyMode || win.isDestroyed()) return;
-    isEfficiencyMode = true;
-    
-    try {
-      // Снижаем частоту кадров когда в трее
-      win.webContents.setFrameRate(5);
-      
-      // Приостанавливаем некритичные фоновые задачи
-      win.webContents.setBackgroundThrottling(true);
-      
-      console.log('[Window] Efficiency mode enabled');
-    } catch (e) {
-      console.warn('[Window] Failed to enable efficiency mode:', e.message);
-    }
-  };
-  
-  const disableEfficiencyMode = () => {
-    if (!isEfficiencyMode || win.isDestroyed()) return;
-    isEfficiencyMode = false;
-    
-    try {
-      // Восстанавливаем нормальную частоту кадров
-      win.webContents.setFrameRate(60);
-      
-      // Восстанавливаем настройки throttling из профиля
-      const currentProfile = configManager.get().profile || 'balanced';
-      win.webContents.setBackgroundThrottling(currentProfile !== 'performance');
-      
-      console.log('[Window] Efficiency mode disabled');
-    } catch (e) {
-      console.warn('[Window] Failed to disable efficiency mode:', e.message);
-    }
-  };
-  
-  // Включаем режим эффективности когда окно скрыто
-  win.on('hide', () => {
-    // Даем небольшую задержку на случай быстрого show/hide
-    setTimeout(() => {
-      if (!win.isVisible() && !win.isDestroyed()) {
-        enableEfficiencyMode();
+  const saveState = () => {
+    if (win.isDestroyed()) return;
+    const normalBounds = win.getNormalBounds();
+    void configManager.update({
+      windowState: {
+        ...normalBounds,
+        isMaximized: win.isMaximized()
       }
-    }, 1000);
-  });
-  
-  // Отключаем режим эффективности когда окно показано
-  win.on('show', disableEfficiencyMode);
-  win.on('focus', disableEfficiencyMode);
-  
-  // Также учитываем минимизацию
-  win.on('minimize', () => {
-    setTimeout(() => {
-      if (win.isMinimized() && !win.isDestroyed()) {
-        enableEfficiencyMode();
-      }
-    }, 2000);
-  });
-  
-  win.on('restore', disableEfficiencyMode);
+    }).catch((error) => console.warn('[Window] Failed to persist bounds:', error.message));
+  };
 
-  win.on('close', (e) => {
-    // Очищаем таймер при закрытии окна
-    if (resizeTimer) {
-      clearTimeout(resizeTimer);
-      resizeTimer = null;
-    }
-    
+  const scheduleStateSave = () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(saveState, 500);
+  };
+  win.on('resize', scheduleStateSave);
+  win.on('move', scheduleStateSave);
+
+  const enterBackgroundMode = () => {
+    if (win.isDestroyed()) return;
+    win.webContents.setBackgroundThrottling(true);
+    win.setProgressBar(-1);
+  };
+  win.on('hide', enterBackgroundMode);
+  win.on('minimize', enterBackgroundMode);
+
+  win.on('close', (event) => {
     if (app.isQuitting) return;
     if (configManager.get().minimizeToTray) {
-      e.preventDefault();
+      event.preventDefault();
       win.hide();
     }
   });
 
-  const saveState = () => {
-    if (win.isDestroyed()) return;
-    if (!win.isMaximized() && !win.isMinimized()) {
-      configManager.update({ windowState: { ...win.getBounds(), isMaximized: false } });
-    } else if (win.isMaximized()) {
-      configManager.update({ windowState: { isMaximized: true } });
-    }
-  };
-  
-  win.on('resize', () => {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(saveState, 500);
-  });
-  
-  win.on('move', () => {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(saveState, 500);
-  });
-
-  // ИЗМЕНЕНО: очистка при уничтожении окна
   win.on('closed', () => {
-    if (resizeTimer) {
-      clearTimeout(resizeTimer);
-      resizeTimer = null;
-    }
+    if (resizeTimer) clearTimeout(resizeTimer);
+    if (showFallbackTimer) clearTimeout(showFallbackTimer);
+    windowSession.removeListener('will-download', onWillDownload);
   });
 
+  void win.loadURL(lastTrustedUrl).catch(() => openOfflinePage());
   return win;
 }

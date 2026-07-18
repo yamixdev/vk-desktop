@@ -1,0 +1,27 @@
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #19191a;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: #555;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+#ads_left,
+.ads_ads_news_wrap,
+.ads_left,
+div[data-ad-view],
+.ads_ad_box,
+#ads_layer_wrap,
+.layout__ads_right {
+  display: none !important;
+  content-visibility: hidden;
+}

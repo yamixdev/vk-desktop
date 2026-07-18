@@ -1,1 +1,0 @@
-﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[3018],{53018:(p,e,a)=>{a.d(e,{default:()=>n});const n={sw_spy_online_app:["appeared online with {appName}","appeared online with {appName}"],sw_spy_offline_app:["logged out with {appName}","logged out with {appName}"]}}}]);

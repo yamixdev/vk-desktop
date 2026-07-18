@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+    <title>Обновление VK Desktop</title>
+    <link rel="stylesheet" href="update-progress.css">
+  </head>
+  <body>
+    <main>
+      <h1>Загрузка обновления</h1>
+      <div class="bar" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="fill"></div>
+      </div>
+      <div class="info">
+        <span id="percent">0%</span>
+        <span id="speed">—</span>
+      </div>
+      <button id="cancel" type="button">Отменить</button>
+    </main>
+    <script src="update-progress.js"></script>
+  </body>
+</html>

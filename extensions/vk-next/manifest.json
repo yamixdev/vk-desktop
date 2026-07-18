@@ -4,22 +4,25 @@
       "default_title": "__MSG_popupTitle__"
    },
    "background": {
-      "service_worker": "scripts/62a8f8922.vknext.js"
+      "service_worker": "scripts/0cd7c4e6b.vknext.js"
    },
    "content_scripts": [ {
-      "css": [ "styles/ba10afe35.vknext.css" ],
-      "js": [ "scripts/e3f4b642a.vknext.js", "scripts/1769cbdf1.vknext.js" ],
+      "js": [ "scripts/e0b3cf524.vknext.js", "scripts/c5b2a05af.vknext.js" ],
       "matches": [ "https://vk.com/*", "https://vk.ru/*", "https://vkvideo.ru/*", "https://vksport.vkvideo.ru/*" ],
       "run_at": "document_start"
    }, {
-      "js": [ "scripts/d02ae3a6a.vknext.js" ],
+      "js": [ "scripts/1f128f5fb.vknext.js" ],
+      "matches": [ "https://vknext.net/*" ],
+      "run_at": "document_start"
+   }, {
+      "js": [ "scripts/3b1fc4ab0.vknext.js" ],
       "matches": [ "https://oauth.vk.com/*", "https://login.vk.com/*", "https://oauth.vk.ru/*", "https://login.vk.ru/*" ],
       "run_at": "document_start"
    }, {
       "all_frames": true,
-      "css": [ "styles/fc8bfbbd5.vknext.css" ],
-      "js": [ "scripts/7a0a04dc8.vknext.js" ],
-      "matches": [ "https://static.vk.com/*", "https://static.vk.ru/*", "https://connect.vk.com/*", "https://id.vk.com/*", "https://platform.vk.com/*", "https://connect.vk.ru/*", "https://id.vk.ru/*", "https://platform.vk.ru/*", "https://*.pages.vk-apps.com/*" ],
+      "css": [ "styles/98c1c2cfd.vknext.css" ],
+      "js": [ "scripts/f3cbdf795.vknext.js" ],
+      "matches": [ "https://static.vk.com/*", "https://static.vk.ru/*", "https://connect.vk.com/*", "https://id.vk.com/*", "https://platform.vk.com/*", "https://connect.vk.ru/*", "https://id.vk.ru/*", "https://platform.vk.ru/*", "https://*.pages.vk-apps.com/*", "https://vknext.net/*" ],
       "run_at": "document_start"
    } ],
    "default_locale": "ru",
@@ -40,12 +43,12 @@
    "minimum_chrome_version": "105",
    "name": "__MSG_extName__",
    "optional_host_permissions": [ "https://*.pages.vk-apps.com/*", "https://*/*" ],
-   "permissions": [ "tabs", "unlimitedStorage", "storage", "declarativeNetRequest", "scripting", "downloads", "alarms", "notifications" ],
+   "permissions": [ "tabs", "unlimitedStorage", "storage", "declarativeNetRequest", "scripting", "alarms", "notifications" ],
    "short_name": "vknext",
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "14.7.2",
+   "version": "14.14.0",
    "web_accessible_resources": [ {
-      "matches": [ "\u003Call_urls>" ],
-      "resources": [ "*" ]
+      "matches": [ "https://vk.com/*", "https://vk.ru/*", "https://vkvideo.ru/*", "https://vksport.vkvideo.ru/*", "https://vknext.net/*" ],
+      "resources": [ "scripts/*", "styles/*", "assets/*", "mitm.html", "popup.html", "mitmWorker.js", "saver/*" ]
    } ]
 }

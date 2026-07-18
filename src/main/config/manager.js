@@ -1,160 +1,160 @@
-import { EventEmitter } from 'events';
-import fs from 'fs/promises';
-import path from 'path';
-import { z } from 'zod';
+import { EventEmitter } from 'node:events';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {
+  DEFAULT_CONFIG,
+  mergeConfig,
+  sanitizeConfig
+} from './schema.js';
 
-/**
- * Схема валидации конфигурации
- */
-const ConfigSchema = z.object({
-  profile: z.enum(['balanced', 'performance', 'powersave']).default('balanced'),
-  domain: z.string().default('vk.ru'), // Используем vk.ru как дефолт, он стабильнее для API сейчас
-  minimizeToTray: z.boolean().default(true),
-  enableDiscord: z.boolean().default(false),
-  enableVKNext: z.boolean().default(true),
-  windowState: z.object({
-    width: z.number().optional(),
-    height: z.number().optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    isMaximized: z.boolean().optional()
-  }).optional().default({})
-});
+const SAVE_DEBOUNCE_MS = 500;
+const RENAME_RETRY_DELAYS_MS = Object.freeze([50, 100, 200, 400]);
+const RETRYABLE_RENAME_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM']);
 
-const DEFAULT_CONFIG = ConfigSchema.parse({});
+function cloneConfig(config) {
+  return structuredClone(config);
+}
 
-/**
- * Менеджер конфигурации (Singleton logic expected in usage)
- */
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export default class ConfigManager extends EventEmitter {
   constructor(userDataPath) {
     super();
     this.path = path.join(userDataPath, 'config.json');
-    this.data = { ...DEFAULT_CONFIG };
+    this.data = sanitizeConfig(DEFAULT_CONFIG);
     this.saveTimer = null;
-    this.isWriting = false;
+    this.pendingSnapshot = null;
+    this.writeQueue = Promise.resolve();
     this.isDestroyed = false;
   }
 
   async load() {
+    let shouldPersistSanitizedConfig = false;
+
     try {
-      // ИЗМЕНЕНО: Сразу читаем файл без предварительной проверки (race condition fix)
       const fileContent = await fs.readFile(this.path, 'utf8');
-      
-      // Парсим JSON
       let parsed;
+
       try {
         parsed = JSON.parse(fileContent);
-      } catch (e) {
-        console.warn('[Config] JSON parsing error, resetting to default');
+      } catch (error) {
+        console.warn('[Config] Invalid JSON; safe defaults will be persisted:', error.message);
         parsed = {};
+        shouldPersistSanitizedConfig = true;
       }
 
-      // Валидируем и мержим с дефолтным конфигом
-      // .catch() в parse позволяет не крашиться при невалидных данных, а подставлять дефолт
-      try {
-        this.data = ConfigSchema.parse({ ...DEFAULT_CONFIG, ...parsed });
-      } catch (validationError) {
-        console.warn('[Config] Validation error, using defaults for invalid fields:', validationError.errors);
-        // Zod throw error, so we try to sanitize what we can or reset
-        this.data = { ...DEFAULT_CONFIG, ...parsed }; // Fallback merge
-      }
-      
+      this.data = sanitizeConfig(parsed);
+      shouldPersistSanitizedConfig ||= JSON.stringify(parsed) !== JSON.stringify(this.data);
     } catch (error) {
-      // ENOENT = файл не найден, это норма для первого запуска
-      if (error.code !== 'ENOENT') {
-        console.error('[Config] Load error:', error.message);
+      this.data = sanitizeConfig(DEFAULT_CONFIG);
+      if (error.code === 'ENOENT') {
+        shouldPersistSanitizedConfig = true;
+      } else {
+        console.error('[Config] Load failed; continuing with safe defaults:', error.message);
       }
-      // Если файла нет, используем дефолт
-      this.data = { ...DEFAULT_CONFIG };
+    }
+
+    if (shouldPersistSanitizedConfig) {
       await this.save(this.data, true);
     }
-    return this.data;
+
+    return this.get();
   }
 
   get() {
-    return this.data;
+    return cloneConfig(this.data);
   }
 
   async update(patch) {
-    // Мержим старые данные + патч + валидация, чтобы не записать мусор
-    const merged = { ...this.data, ...patch };
-    
-    // Пытаемся провалидировать перед сохранением
-    try {
-      this.data = ConfigSchema.parse(merged);
-    } catch (e) {
-      console.warn('[Config] Invalid update patch, ignoring invalid fields');
-      this.data = merged; // Сохраняем как есть, если валидация строгая - можно отменить
+    if (this.isDestroyed) {
+      throw new Error('ConfigManager is destroyed');
     }
 
-    this.emit('updated', this.data);
-    await this.save(this.data);
-    return this.data;
+    this.data = mergeConfig(this.data, patch);
+    const snapshot = this.get();
+    this.emit('updated', snapshot);
+    await this.save(snapshot);
+    return snapshot;
   }
 
-  async save(data, force = false) {
+  async save(data = this.data, force = false) {
     if (this.isDestroyed) return;
 
-    this.data = { ...this.data, ...data };
+    this.data = sanitizeConfig({ ...this.data, ...data });
+    this.pendingSnapshot = this.get();
 
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
 
-    const writeToDisk = async () => {
-      if (this.isWriting || this.isDestroyed) return;
-      this.isWriting = true;
-
-      const tempPath = `${this.path}.tmp`;
-
-      try {
-        await fs.writeFile(tempPath, JSON.stringify(this.data, null, 2));
-        
-        // ИЗМЕНЕНО: Ретрай механизм для Windows (EPERM fix)
-        // Иногда антивирус блокирует файл на мгновение после записи
-        let retries = 0;
-        while (retries < 3) {
-          try {
-            await fs.rename(tempPath, this.path);
-            break; 
-          } catch (err) {
-            if (err.code === 'EPERM' || err.code === 'EBUSY') {
-              retries++;
-              await new Promise(r => setTimeout(r, 100)); // Ждем 100мс
-            } else {
-              throw err;
-            }
-          }
-        }
-      } catch (error) {
-        console.error('[Config] Save failed:', error.message);
-      } finally {
-        this.isWriting = false;
-        // Чистим временный файл, если он остался (при ошибке rename)
-        try {
-           await fs.unlink(tempPath).catch(() => {});
-        } catch (e) {}
-      }
-    };
-
     if (force) {
-      await writeToDisk();
-    } else {
-      this.saveTimer = setTimeout(writeToDisk, 1000);
+      await this.flush();
+      return;
+    }
+
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.#enqueuePendingWrite().catch((error) => {
+        console.error('[Config] Save failed:', error.message);
+      });
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  #enqueuePendingWrite() {
+    if (!this.pendingSnapshot) return this.writeQueue;
+
+    const snapshot = this.pendingSnapshot;
+    this.pendingSnapshot = null;
+    this.writeQueue = this.writeQueue
+      .catch(() => undefined)
+      .then(() => this.#writeSnapshot(snapshot));
+    return this.writeQueue;
+  }
+
+  async #writeSnapshot(snapshot) {
+    await fs.mkdir(path.dirname(this.path), { recursive: true });
+    const tempPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
+
+    try {
+      await fs.writeFile(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await fs.rename(tempPath, this.path);
+          break;
+        } catch (error) {
+          const retryDelay = RENAME_RETRY_DELAYS_MS[attempt];
+          if (!RETRYABLE_RENAME_ERRORS.has(error.code) || retryDelay === undefined) {
+            throw error;
+          }
+          await delay(retryDelay);
+        }
+      }
+    } finally {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined);
     }
   }
 
-  async destroy() {
-    this.isDestroyed = true;
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    
-    // Если прямо сейчас пишем - подождем немного
-    if (this.isWriting) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+  async flush() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
     }
-    
+
+    do {
+      await this.#enqueuePendingWrite();
+    } while (this.pendingSnapshot);
+
+    await this.writeQueue;
+  }
+
+  async destroy() {
+    if (this.isDestroyed) return;
+    await this.flush();
+    this.isDestroyed = true;
     this.removeAllListeners();
   }
 }

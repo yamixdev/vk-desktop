@@ -1,0 +1,106 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  checkLatestGitHubRelease,
+  compareReleaseVersions,
+  isFreshCurrentCheck,
+  RELEASE_CHECK_REASON,
+  RELEASE_CHECK_STATUS
+} from '../src/main/updater/releasePolicy.js';
+
+test('compares equal, newer local, and newer remote versions', () => {
+  assert.deepEqual(compareReleaseVersions('1.2.0', 'v1.2.0'), {
+    status: RELEASE_CHECK_STATUS.CURRENT,
+    reason: RELEASE_CHECK_REASON.EQUAL,
+    currentVersion: '1.2.0',
+    remoteVersion: '1.2.0'
+  });
+
+  assert.deepEqual(compareReleaseVersions('1.2.0', 'v1.1.3'), {
+    status: RELEASE_CHECK_STATUS.CURRENT,
+    reason: RELEASE_CHECK_REASON.LOCAL_NEWER,
+    currentVersion: '1.2.0',
+    remoteVersion: '1.1.3'
+  });
+
+  assert.deepEqual(compareReleaseVersions('1.2.0', 'v1.3.0'), {
+    status: RELEASE_CHECK_STATUS.UPDATE_AVAILABLE,
+    reason: RELEASE_CHECK_REASON.REMOTE_NEWER,
+    currentVersion: '1.2.0',
+    remoteVersion: '1.3.0'
+  });
+});
+
+test('treats a missing GitHub release as a current local build', async () => {
+  const result = await checkLatestGitHubRelease({
+    currentVersion: '1.2.0',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 404
+    })
+  });
+
+  assert.deepEqual(result, {
+    status: RELEASE_CHECK_STATUS.CURRENT,
+    reason: RELEASE_CHECK_REASON.NO_RELEASE,
+    currentVersion: '1.2.0',
+    remoteVersion: null
+  });
+});
+
+test('reads and compares the latest GitHub release tag', async () => {
+  let request;
+  const result = await checkLatestGitHubRelease({
+    currentVersion: '1.2.0',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ tag_name: 'v1.3.0' })
+      };
+    }
+  });
+
+  assert.equal(result.status, RELEASE_CHECK_STATUS.UPDATE_AVAILABLE);
+  assert.equal(result.remoteVersion, '1.3.0');
+  assert.equal(request.options.headers['User-Agent'], 'VK-Desktop-Updater');
+});
+
+test('turns network and malformed-version failures into typed errors', async () => {
+  await assert.rejects(
+    checkLatestGitHubRelease({
+      currentVersion: '1.2.0',
+      fetchImpl: async () => { throw new Error('offline'); }
+    }),
+    (error) => error.code === 'NETWORK_ERROR'
+  );
+
+  await assert.rejects(
+    checkLatestGitHubRelease({
+      currentVersion: '1.2.0',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ tag_name: 'not-a-version' })
+      })
+    }),
+    (error) => error.code === 'INVALID_VERSION'
+  );
+});
+
+test('reuses only a recent successful current-version check', () => {
+  const now = Date.parse('2026-07-18T12:00:00.000Z');
+  const fresh = {
+    status: RELEASE_CHECK_STATUS.CURRENT,
+    checkedAt: '2026-07-18T11:58:00.000Z'
+  };
+  const stale = {
+    status: RELEASE_CHECK_STATUS.CURRENT,
+    checkedAt: '2026-07-18T11:00:00.000Z'
+  };
+
+  assert.equal(isFreshCurrentCheck(fresh, { now }), true);
+  assert.equal(isFreshCurrentCheck(stale, { now }), false);
+  assert.equal(isFreshCurrentCheck({ ...fresh, status: RELEASE_CHECK_STATUS.ERROR }, { now }), false);
+});

@@ -1,0 +1,1 @@
+﻿"use strict";(globalThis.webpackChunkvknext=globalThis.webpackChunkvknext||[]).push([[1115],{22440(e,n,o){o.d(n,{A:()=>s});const s=()=>"undefined"!=typeof unsafeWindow?unsafeWindow:"undefined"!=typeof window?window:globalThis},387(e,n,o){o.d(n,{A:()=>s});const s=()=>Math.floor(Date.now()/1e3)},92046(e,n,o){o.d(n,{c:()=>s});const s=e=>new Promise(n=>setTimeout(n,e))}}]);

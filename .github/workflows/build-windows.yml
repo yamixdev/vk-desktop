@@ -1,0 +1,37 @@
+name: Build Windows x64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build unsigned installer
+        run: npm run build
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VK-Desktop-windows-x64-installer
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
