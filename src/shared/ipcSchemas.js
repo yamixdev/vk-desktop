@@ -57,6 +57,7 @@ export const MediaProgressSchema = z.object({
 
 export const BadgeCountSchema = z.number().int().min(0).max(9999);
 export const PerformanceProfileSchema = z.enum(['balanced', 'performance', 'powersave']);
+export const TitleBarThemeSchema = z.enum(['light', 'dark']);
 
 export const IPC_CHANNELS = Object.freeze({
   MEDIA_STATE: 'media:state',
@@ -64,6 +65,8 @@ export const IPC_CHANNELS = Object.freeze({
   MEDIA_CONTROL: 'media:control',
   BADGE_UPDATE: 'app:badge',
   PERFORMANCE_PROFILE: 'app:profile',
+  TITLE_BAR_MENU: 'window:titlebar-menu',
+  TITLE_BAR_THEME: 'window:titlebar-theme',
   UPDATE_PROGRESS: 'update:progress',
   UPDATE_CANCEL: 'update:cancel'
 });

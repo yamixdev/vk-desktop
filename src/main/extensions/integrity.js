@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const TREE_ALGORITHM = 'sha256-tree-v1';
+const TREE_ALGORITHM = 'sha256-tree-v2';
+const CANONICAL_TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json']);
+
+function canonicalizeContent(filePath, content) {
+  if (!CANONICAL_TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return content;
+  return Buffer.from(content.toString('utf8').replace(/\r\n/gu, '\n'), 'utf8');
+}
 
 async function collectFiles(rootDirectory, currentDirectory = rootDirectory) {
   const directoryEntries = await fs.readdir(currentDirectory, { withFileTypes: true });
@@ -34,7 +40,7 @@ export async function computeExtensionIntegrity(rootDirectory) {
   let totalBytes = 0;
 
   for (const file of files) {
-    const content = await fs.readFile(file.absolutePath);
+    const content = canonicalizeContent(file.relativePath, await fs.readFile(file.absolutePath));
     const fileHash = crypto.createHash('sha256').update(content).digest('hex');
     totalBytes += content.length;
     treeHash.update(file.relativePath, 'utf8');

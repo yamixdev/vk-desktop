@@ -27,3 +27,16 @@ test('fails closed when an extension file changes', async (context) => {
   await fs.writeFile(path.join(directory, 'manifest.json'), '{"version":"2"}');
   await assert.rejects(() => verifyExtensionIntegrity(directory, expected), /integrity mismatch/u);
 });
+
+test('normalizes text line endings across operating systems', async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vk-next-integrity-eol-'));
+  context.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, 'content.js');
+
+  await fs.writeFile(filePath, 'const first = 1;\r\nconst second = 2;\r\n');
+  const windowsIntegrity = await computeExtensionIntegrity(directory);
+  await fs.writeFile(filePath, 'const first = 1;\nconst second = 2;\n');
+  const unixIntegrity = await computeExtensionIntegrity(directory);
+
+  assert.deepEqual(unixIntegrity, windowsIntegrity);
+});

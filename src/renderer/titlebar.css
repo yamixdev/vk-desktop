@@ -1,0 +1,122 @@
+:root.vk-desktop-titlebar-active {
+  --vk-desktop-titlebar-height: 48px;
+}
+
+:root.vk-desktop-titlebar-active body {
+  box-sizing: border-box !important;
+  min-height: 100vh !important;
+  padding-top: var(--vk-desktop-titlebar-height) !important;
+}
+
+#vk-desktop-titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  align-items: center;
+  background: #f0f2f5;
+  border-bottom: 1px solid rgb(0 0 0 / 10%);
+  box-sizing: border-box;
+  color: #141414;
+  display: flex;
+  font-family: "Segoe UI", Arial, sans-serif;
+  height: var(--vk-desktop-titlebar-height);
+  inset: 0 0 auto;
+  position: fixed;
+  user-select: none;
+  z-index: 2147483646;
+}
+
+#vk-desktop-titlebar[data-theme="dark"] {
+  background: #19191a;
+  border-bottom-color: rgb(255 255 255 / 12%);
+  color: #f2f3f5;
+}
+
+.vk-desktop-titlebar__safe-area {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  margin-left: env(titlebar-area-x, 0);
+  pointer-events: none;
+  width: env(titlebar-area-width, 100%);
+}
+
+.vk-desktop-titlebar__brand {
+  align-items: center;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 600;
+  gap: 8px;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.vk-desktop-titlebar__logo {
+  -webkit-user-drag: none;
+  background-image: var(--vk-desktop-titlebar-logo);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  display: block;
+  height: 26px;
+  width: 26px;
+}
+
+.vk-desktop-titlebar__menu {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: default;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  left: env(titlebar-area-x, 0);
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  width: 48px;
+}
+
+.vk-desktop-titlebar__menu:hover {
+  background: rgb(0 0 0 / 8%);
+}
+
+#vk-desktop-titlebar[data-theme="dark"] .vk-desktop-titlebar__menu:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.vk-desktop-titlebar__menu:focus-visible {
+  outline: 2px solid #2688eb;
+  outline-offset: -3px;
+}
+
+.vk-desktop-titlebar__menu-lines,
+.vk-desktop-titlebar__menu-lines::before,
+.vk-desktop-titlebar__menu-lines::after {
+  background: currentColor;
+  border-radius: 1px;
+  content: "";
+  display: block;
+  height: 2px;
+  position: absolute;
+  width: 18px;
+}
+
+.vk-desktop-titlebar__menu-lines::before {
+  transform: translateY(-6px);
+}
+
+.vk-desktop-titlebar__menu-lines::after {
+  transform: translateY(6px);
+}
+
+.vk-desktop-titlebar-offset {
+  top: var(--vk-desktop-titlebar-height) !important;
+}

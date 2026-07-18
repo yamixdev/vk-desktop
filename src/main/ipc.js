@@ -2,17 +2,31 @@ import {
   BadgeCountSchema,
   IPC_CHANNELS,
   MediaProgressSchema,
-  MediaStateSchema
+  MediaStateSchema,
+  TitleBarThemeSchema
 } from '../shared/ipcSchemas.js';
+import { isAppPageUrl } from '../shared/appProtocolPolicy.js';
 import { isPrivilegedRendererUrl } from '../shared/urlPolicy.js';
+import { popupHeaderMenu } from './ui/menu.js';
+import { applyTitleBarTheme } from './window/titleBar.js';
 
-function isTrustedSender(event, mainWindow) {
+function isMainFrameSender(event, mainWindow) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   if (event.sender !== mainWindow.webContents) return false;
 
   const frame = event.senderFrame;
   if (!frame || frame !== mainWindow.webContents.mainFrame) return false;
-  return isPrivilegedRendererUrl(frame.url);
+  return frame;
+}
+
+function isTrustedSender(event, mainWindow) {
+  const frame = isMainFrameSender(event, mainWindow);
+  return Boolean(frame && isPrivilegedRendererUrl(frame.url));
+}
+
+function isTitleBarSender(event, mainWindow) {
+  const frame = isMainFrameSender(event, mainWindow);
+  return Boolean(frame && (isPrivilegedRendererUrl(frame.url) || isAppPageUrl(frame.url)));
 }
 
 function createRateLimiter() {
@@ -88,13 +102,32 @@ export function registerMainIpc({
     lastBadgeCount = badgeCount;
   };
 
+  const onTitleBarMenu = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.TITLE_BAR_MENU, 250)) return;
+    popupHeaderMenu(mainWindow);
+  };
+
+  const onTitleBarTheme = (event, payload) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    const parsed = TitleBarThemeSchema.safeParse(payload);
+    if (!parsed.success || !allowEvent(IPC_CHANNELS.TITLE_BAR_THEME, 100)) return;
+    applyTitleBarTheme(mainWindow, parsed.data);
+  };
+
   ipcMain.on(IPC_CHANNELS.MEDIA_STATE, onMediaState);
   ipcMain.on(IPC_CHANNELS.MEDIA_PROGRESS, onMediaProgress);
   ipcMain.on(IPC_CHANNELS.BADGE_UPDATE, onBadgeUpdate);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_MENU, onTitleBarMenu);
+  ipcMain.on(IPC_CHANNELS.TITLE_BAR_THEME, onTitleBarTheme);
 
   return () => {
     ipcMain.removeListener(IPC_CHANNELS.MEDIA_STATE, onMediaState);
     ipcMain.removeListener(IPC_CHANNELS.MEDIA_PROGRESS, onMediaProgress);
     ipcMain.removeListener(IPC_CHANNELS.BADGE_UPDATE, onBadgeUpdate);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_MENU, onTitleBarMenu);
+    ipcMain.removeListener(IPC_CHANNELS.TITLE_BAR_THEME, onTitleBarTheme);
   };
 }

@@ -2,6 +2,13 @@ import { app, dialog, Menu } from 'electron';
 import { manualCheck } from '../updater.js';
 import { APP_ROUTES, navigateMainWindow } from '../window/navigation.js';
 
+const headerMenus = new WeakMap();
+
+export function popupHeaderMenu(mainWindow) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  headerMenus.get(mainWindow)?.popup({ window: mainWindow });
+}
+
 export function createApplicationMenu(mainWindow, configManager, services = {}) {
   const config = configManager.get();
   const domain = config.domain;
@@ -153,6 +160,22 @@ export function createApplicationMenu(mainWindow, configManager, services = {}) 
     );
   }
 
+  const showAbout = () => dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'VK Desktop',
+    message: 'VK Desktop',
+    detail: [
+      `Версия: ${app.getVersion()}`,
+      `Electron: ${process.versions.electron}`,
+      `Chrome: ${process.versions.chrome}`,
+      `Node.js: ${process.versions.node}`,
+      '',
+      'Неофициальный клиент VK с поддержкой Discord RPC.'
+    ].join('\n'),
+    buttons: ['ОК'],
+    noLink: true
+  });
+
   const template = [
     {
       label: 'Файл',
@@ -230,27 +253,27 @@ export function createApplicationMenu(mainWindow, configManager, services = {}) 
         { type: 'separator' },
         {
           label: 'О программе',
-          click: () => dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'VK Desktop',
-            message: 'VK Desktop',
-            detail: [
-              `Версия: ${app.getVersion()}`,
-              `Electron: ${process.versions.electron}`,
-              `Chrome: ${process.versions.chrome}`,
-              `Node.js: ${process.versions.node}`,
-              '',
-              'Неофициальный клиент VK с поддержкой Discord RPC.'
-            ].join('\n'),
-            buttons: ['ОК'],
-            noLink: true
-          })
+          click: showAbout
         }
       ]
     }
   ];
 
   const menu = Menu.buildFromTemplate(template);
+  const headerMenu = Menu.buildFromTemplate([
+    { ...settingsSubmenu[0] },
+    { ...settingsSubmenu[1] },
+    { ...settingsSubmenu[2] },
+    { type: 'separator' },
+    { ...settingsSubmenu[4] },
+    { ...settingsSubmenu[6] },
+    { type: 'separator' },
+    { label: 'Проверить обновления', click: () => manualCheck(mainWindow) },
+    { label: 'О программе', click: showAbout },
+    { type: 'separator' },
+    { label: 'Выход', click: () => app.quit() }
+  ]);
+  headerMenus.set(mainWindow, headerMenu);
   Menu.setApplicationMenu(menu);
   return menu;
 }

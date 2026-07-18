@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen } from 'electron';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
@@ -14,16 +14,28 @@ import { IPC_CHANNELS } from '../../shared/ipcSchemas.js';
 import { configureSessionSecurity } from '../security/session.js';
 import { getRootPath, getUnpackedPath, resolvePath } from '../utils.js';
 import { normalizeWindowState } from './state.js';
+import { createTitleBarOverlay } from './titleBar.js';
 
 const MAX_CRASH_RELOADS = 3;
 const CRASH_WINDOW_MS = 2 * 60 * 1000;
 
 let trustedPageCssPromise = null;
+let titleBarCssPromise = null;
 let musicMonitorSourcePromise = null;
 
 function getTrustedPageCss() {
   trustedPageCssPromise ??= fsPromises.readFile(resolvePath('../renderer/vk-overrides.css'), 'utf8');
   return trustedPageCssPromise;
+}
+
+function getTitleBarCss() {
+  titleBarCssPromise ??= Promise.all([
+    fsPromises.readFile(resolvePath('../renderer/titlebar.css'), 'utf8'),
+    fsPromises.readFile(getIconPath())
+  ]).then(([css, icon]) => (
+    `${css}\n:root { --vk-desktop-titlebar-logo: url("data:image/x-icon;base64,${icon.toString('base64')}"); }\n`
+  ));
+  return titleBarCssPromise;
 }
 
 function getMusicMonitorSource() {
@@ -53,6 +65,7 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     primaryDisplay.workArea
   );
   const win = new BrowserWindow({
+    title: 'ВКонтакте',
     width: state.width,
     height: state.height,
     ...(Number.isFinite(state.x) ? { x: state.x } : {}),
@@ -60,9 +73,13 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     minWidth: 800,
     minHeight: 600,
     icon: getIconPath(),
-    backgroundColor: '#19191a',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#19191a' : '#f0f2f5',
     show: false,
-    frame: true,
+    autoHideMenuBar: false,
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin' ? {
+      titleBarOverlay: createTitleBarOverlay(nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    } : {}),
     webPreferences: {
       preload: resolvePath('../preload/index.cjs'),
       contextIsolation: true,
@@ -80,7 +97,7 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
 
   if (state.isMaximized) win.maximize();
   win.webContents.setUserAgent(USER_AGENT);
-  win.setMenuBarVisibility(true);
+  win.setMenuBarVisibility(false);
   const windowSession = win.webContents.session;
   configureSessionSecurity(windowSession, () => win);
 
@@ -156,6 +173,18 @@ export async function createMainWindow(configManager, targetDomain, { openExtern
     }
     console.warn('[Window] Main frame load failed:', errorCode, errorDescription);
     void openOfflinePage();
+  });
+
+  win.webContents.on('dom-ready', async () => {
+    const pageUrl = win.webContents.getURL();
+    if (!isPrivilegedRendererUrl(pageUrl) && !isAppPageUrl(pageUrl)) return;
+    try {
+      const css = await getTitleBarCss();
+      if (win.isDestroyed() || win.webContents.getURL() !== pageUrl) return;
+      await win.webContents.insertCSS(css, { cssOrigin: 'user' });
+    } catch (error) {
+      console.warn('[Window] Title bar styles failed:', error.message);
+    }
   });
 
   win.webContents.on('did-finish-load', async () => {

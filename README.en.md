@@ -10,57 +10,55 @@
 ![Electron 43.1.1](https://img.shields.io/badge/Electron-43.1.1-47848F?logo=electron&logoColor=white)
 ![License: Proprietary](https://img.shields.io/badge/license-proprietary-C62828)
 
-An unofficial VK desktop client for Windows with VK Next, Discord Rich
-Presence, and system tray integration.
+An unofficial VK client for Windows that combines the VK web interface, VK Next,
+and desktop integration in a single application window.
 
 </div>
 
 ## Features
 
-- the full VK interface in a dedicated desktop application;
-- a bundled VK Next artifact verified against pinned SHA-256 metadata;
-- VK Next settings in a dedicated `1280×720` window;
-- Discord Rich Presence for music without continuous status updates;
-- media controls and quick navigation from the system tray;
-- SPA transitions to Music, Messages, and Home without unnecessary reloads;
-- notifications, unread badges, and minimize-to-tray behavior;
-- built-in update checks and a Windows x64 installer;
-- sandboxing, context isolation, validated IPC, and strict external-link policy.
+- VK in a dedicated window with native Windows integration.
+- Optional VK Next integration with version, file-set, and checksum validation.
+- Discord Rich Presence for the currently playing track.
+- Tray media controls and SPA navigation to Messages, Music, and Home without a
+  full VK page reload.
+- Unread-message badges, notifications, and minimize-to-tray behavior.
+- Performance profiles and conservative background memory cleanup.
+- Built-in update checks and a Windows x64 installer.
 
 ## Installation
 
 1. Open the [latest release](https://github.com/yamixdev/vk-desktop/releases/latest).
 2. Download `VK-Desktop-Setup-<version>.exe`.
-3. Run the installer and choose the installation directory.
+3. Run the installer and select an installation directory.
 
 > [!WARNING]
-> Current builds may not have a paid Authenticode signature. Windows SmartScreen
-> can therefore show an “Unknown publisher” warning. Download the application
-> only from the official `yamixdev/vk-desktop` repository.
+> The project does not currently use a commercial Authenticode certificate.
+> Windows SmartScreen may therefore display an “Unknown publisher” warning.
+> Releases should only be downloaded from the official `yamixdev/vk-desktop`
+> repository.
 
 ## VK Next
 
-VK Next is enabled by default. It can be disabled through
-`File → Settings → VK Next`; switching it requires reloading the VK page. Before
-loading, the application checks the extension version, file list, and SHA-256
-against pinned metadata. Open its settings through
-`File → Settings → Open VK Next settings`.
+VK Next is enabled by default and is managed from the `☰` menu in the window
+header. Enabling or disabling the extension reloads the VK page. Before loading
+it, the client validates the version, complete file set, and SHA-256 checksum
+against pinned metadata. The same menu provides access to VK Next settings.
 
 VK Next is a third-party component. Its respective rights remain with its
 owners; the VK Desktop proprietary license does not claim those rights.
 
 ## Memory and background operation
 
-Chromium manages most memory automatically. VK Desktop additionally requests
-garbage collection only for an oversized renderer and only after the window has
-been hidden for at least five minutes. It checks once per minute and allows at
-least 15 minutes between collections. Collection is skipped while music is
-playing, the page is loading, or DevTools is attached.
+Chromium and V8 remain responsible for most memory management. VK Desktop only
+requests additional collection for an oversized renderer after the window has
+remained in the background for a sustained period. It skips collection while
+music is playing, the page is loading, or DevTools is attached, and enforces a
+long cooldown between requests.
 
-The page is deliberately not discarded entirely because doing so would break
-background music and notifications. A clean-profile idle measurement was about
-407 MB of private working set; actual usage depends on the current page,
-extensions, GPU, and session length.
+The VK page is deliberately kept alive because discarding it would stop
+background playback and notifications. Memory usage is not a fixed target; it
+varies with the active section, VK Next, the GPU process, and session length.
 
 ## Building from source
 
@@ -90,40 +88,39 @@ Useful commands:
 
 ## Security
 
-- remote content runs without Node.js integration;
-- the renderer uses sandboxing and context isolation;
-- IPC accepts schema-validated messages only from the main VK frame;
-- external URLs open in the system browser without loading VK's redirector in
-  the client;
-- local service pages are served from a fixed `vk-desktop://local` allowlist;
-- production builds validate ASAR integrity and disable dangerous Electron
+- Remote content runs without Node.js integration.
+- The renderer uses sandboxing and context isolation.
+- IPC accepts schema-validated messages only from the main VK frame.
+- External URLs open in the system browser without loading VK's redirector in
+  the client.
+- Local service pages are served from a fixed `vk-desktop://local` allowlist.
+- Production builds validate ASAR integrity and disable dangerous Electron
   fuses.
 
 ## License and authorship
 
-Copyright © 2026 **yamixdev**. This project is distributed under a
-[proprietary source-available license](LICENSE) and is **not open source**.
-Viewing the code, personal use of unmodified official binaries, and a private
-local build for evaluation are allowed. Copying, modification, redistribution,
-commercial use, and false authorship are prohibited without written permission.
+Copyright © 2026 **yamixdev**. The source code is published under a
+[proprietary source-available license](LICENSE); this project is **not open
+source**. The license permits source review, personal use of unmodified official
+builds, private evaluation builds, and changes made to prepare a Pull Request for
+this repository.
 
-A public repository can still be viewed and forked through GitHub's platform
-features under its terms. That does not grant permission to present the project
-as your own or distribute derivative versions.
+Written permission is required to distribute original or modified builds, use
+the project commercially, incorporate its code into another project, or claim
+different authorship. A public repository or GitHub fork does not grant those
+rights.
 
 ## Suggestions, Pull Requests, and cooperation
 
-Suggestions for improving the client are welcome through
+Bug reports and improvement proposals are welcome through
 [GitHub Issues](https://github.com/yamixdev/vk-desktop/issues) and
 [Telegram](https://t.me/ilushadevz?direct).
 
-You may clone or fork the repository, create a branch, and modify the code to
-prepare a good-faith Pull Request for the official repository. This does not
-permit publishing independent fork builds, distributing derivative versions,
-or presenting them as official VK Desktop releases. See the
-[contribution guide](CONTRIBUTING.en.md),
-[Code of Conduct](CODE_OF_CONDUCT.en.md), and [license](LICENSE) for the complete
-terms.
+The repository may be cloned or forked to prepare a Pull Request. Environment
+setup, change requirements, and the submission process are documented in the
+[contribution guide](CONTRIBUTING.en.md) and
+[Code of Conduct](CODE_OF_CONDUCT.en.md). Distribution and reuse remain governed
+by the [license](LICENSE).
 
 Companies, VK representatives, and potential partners can contact the author at
 [Telegram: @ilushadevz](https://t.me/ilushadevz?direct). Requests concerning an
