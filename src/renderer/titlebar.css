@@ -26,7 +26,6 @@
   background: var(--vk-desktop-titlebar-bg);
   border-bottom: 1px solid var(--vk-desktop-titlebar-border);
   box-sizing: border-box;
-  contain: layout paint;
   color: var(--vk-desktop-titlebar-fg);
   display: flex;
   font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
