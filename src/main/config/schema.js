@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CURRENT_CONFIG_VERSION = 2;
+export const CURRENT_CONFIG_VERSION = 3;
 
 export const ProfileSchema = z.enum(['balanced', 'performance', 'powersave']);
 export const DomainSchema = z.enum(['vk.ru', 'vk.com']);
@@ -19,6 +19,7 @@ const ConfigPatchSchema = z.object({
   minimizeToTray: z.boolean().optional(),
   enableDiscord: z.boolean().optional(),
   enableVKNext: z.boolean().optional(),
+  safeGraphics: z.boolean().optional(),
   windowState: WindowStateSchema.optional()
 }).strict();
 
@@ -29,6 +30,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   minimizeToTray: true,
   enableDiscord: false,
   enableVKNext: true,
+  safeGraphics: false,
   windowState: Object.freeze({})
 });
 
@@ -47,6 +49,7 @@ export function sanitizeConfig(value) {
     minimizeToTray: parseOrDefault(z.boolean(), source.minimizeToTray, DEFAULT_CONFIG.minimizeToTray),
     enableDiscord: parseOrDefault(z.boolean(), source.enableDiscord, DEFAULT_CONFIG.enableDiscord),
     enableVKNext: parseOrDefault(z.boolean(), source.enableVKNext, DEFAULT_CONFIG.enableVKNext),
+    safeGraphics: parseOrDefault(z.boolean(), source.safeGraphics, DEFAULT_CONFIG.safeGraphics),
     windowState: parseOrDefault(WindowStateSchema, source.windowState, {})
   };
 }

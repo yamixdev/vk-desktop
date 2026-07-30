@@ -12,6 +12,7 @@ import {
   downloadAvailableUpdate,
   getReleaseNotesDetails,
   installDownloadedUpdate,
+  manualCheck,
   sendUpdaterState
 } from './updater.js';
 import { sendTitleBarWindowState } from './window/titleBar.js';
@@ -176,7 +177,14 @@ export function registerMainIpc({
     cancelUpdateDownload();
   };
 
-  const onReleaseNotes = (event) => {
+  const onUpdateCheck = (event) => {
+    const mainWindow = getMainWindow();
+    if (!isTitleBarSender(event, mainWindow)) return;
+    if (!allowEvent(IPC_CHANNELS.UPDATE_CHECK, 1000)) return;
+    void manualCheck(mainWindow);
+  };
+
+  const onReleaseNotes = (event, payload) => {
     const mainWindow = getMainWindow();
     if (!isTitleBarSender(event, mainWindow)) {
       return {
@@ -186,7 +194,7 @@ export function registerMainIpc({
         error: 'Недоступный источник запроса.'
       };
     }
-    return getReleaseNotesDetails();
+    return getReleaseNotesDetails({ view: payload?.view === 'update' ? 'update' : 'current' });
   };
 
   ipcMain.on(IPC_CHANNELS.MEDIA_STATE, onMediaState);
@@ -201,6 +209,7 @@ export function registerMainIpc({
   ipcMain.on(IPC_CHANNELS.UPDATE_DOWNLOAD, onUpdateDownload);
   ipcMain.on(IPC_CHANNELS.UPDATE_INSTALL, onUpdateInstall);
   ipcMain.on(IPC_CHANNELS.UPDATE_CANCEL, onUpdateCancel);
+  ipcMain.on(IPC_CHANNELS.UPDATE_CHECK, onUpdateCheck);
   ipcMain.handle(IPC_CHANNELS.UPDATE_RELEASE_NOTES, onReleaseNotes);
 
   return () => {
@@ -216,6 +225,7 @@ export function registerMainIpc({
     ipcMain.removeListener(IPC_CHANNELS.UPDATE_DOWNLOAD, onUpdateDownload);
     ipcMain.removeListener(IPC_CHANNELS.UPDATE_INSTALL, onUpdateInstall);
     ipcMain.removeListener(IPC_CHANNELS.UPDATE_CANCEL, onUpdateCancel);
+    ipcMain.removeListener(IPC_CHANNELS.UPDATE_CHECK, onUpdateCheck);
     ipcMain.removeHandler(IPC_CHANNELS.UPDATE_RELEASE_NOTES);
   };
 }

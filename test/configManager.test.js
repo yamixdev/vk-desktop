@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import ConfigManager from '../src/main/config/manager.js';
+import { CURRENT_CONFIG_VERSION } from '../src/main/config/schema.js';
 
 test('serializes debounced writes and flushes the latest state on destroy', async (context) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vk-desktop-config-'));
@@ -13,12 +14,14 @@ test('serializes debounced writes and flushes the latest state on destroy', asyn
   await manager.load();
   await manager.update({ domain: 'vk.com' });
   await manager.update({ enableDiscord: true });
+  await manager.update({ safeGraphics: true });
   await manager.destroy();
 
   const persisted = JSON.parse(await fs.readFile(path.join(directory, 'config.json'), 'utf8'));
   assert.equal(persisted.domain, 'vk.com');
   assert.equal(persisted.enableDiscord, true);
-  assert.equal(persisted.schemaVersion, 2);
+  assert.equal(persisted.safeGraphics, true);
+  assert.equal(persisted.schemaVersion, CURRENT_CONFIG_VERSION);
 });
 
 test('loads a partially invalid file without retaining unknown or unsafe values', async (context) => {

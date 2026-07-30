@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { app, dialog } from 'electron';
+import { app } from 'electron';
 import electronUpdater from 'electron-updater';
 import builderUtilRuntime from 'builder-util-runtime';
 import logger from 'electron-log';
@@ -11,9 +11,12 @@ import {
 } from './updater/state.js';
 import {
   checkLatestGitHubRelease,
+  getGitHubReleaseByTag,
   isFreshCurrentCheck,
   RELEASE_CHECK_REASON,
-  RELEASE_CHECK_STATUS
+  RELEASE_CHECK_STATUS,
+  ReleaseCheckError,
+  GITHUB_RELEASES_PAGE_URL
 } from './updater/releasePolicy.js';
 
 const { autoUpdater } = electronUpdater;
@@ -47,7 +50,11 @@ let latestProgress = { percent: 0, speed: '—' };
 let latestUpdateInfo = null;
 let latestReleaseResult = null;
 let latestReleaseCheckedAt = 0;
-let updatePromptPromise = null;
+let latestReleaseEtag = null;
+let releaseCheckBlockedUntil = 0;
+let installedRelease = null;
+let installedReleaseCheckedAt = 0;
+let activeInstalledReleaseTask = null;
 
 function setState(event) {
   updaterState = transitionUpdaterState(updaterState, event);
@@ -72,6 +79,19 @@ export function sendUpdaterState(window = getMainWindow()) {
   window.webContents.send(IPC_CHANNELS.UPDATE_STATE, getUpdaterSnapshot());
 }
 
+function openUpdateDialog(view = 'update', window = getMainWindow()) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+  window.webContents.send(IPC_CHANNELS.UPDATE_OPEN_DIALOG, { view });
+}
+
+function rememberRateLimit(error) {
+  if (error?.code !== 'RATE_LIMITED' || !Number.isFinite(error.retryAfterMs)) return;
+  releaseCheckBlockedUntil = Math.max(
+    releaseCheckBlockedUntil,
+    Date.now() + Math.max(0, error.retryAfterMs)
+  );
+}
+
 function isUnpackedBuild() {
   if (process.platform !== 'win32') return false;
   return path.basename(path.dirname(process.execPath)).toLowerCase() === 'win-unpacked';
@@ -81,71 +101,40 @@ function isUpdaterRuntimeSupported() {
   return app.isPackaged && !isUnpackedBuild();
 }
 
-function getCheckedAtLabel(checkedAt) {
-  const timestamp = Date.parse(checkedAt);
-  return Number.isFinite(timestamp)
-    ? new Date(timestamp).toLocaleString('ru-RU')
+function getUpdateErrorMessage(error) {
+  const retryAfterMs = Number(error?.retryAfterMs);
+  const retryAfterMinutes = Number.isFinite(retryAfterMs) && retryAfterMs > 0
+    ? Math.max(1, Math.ceil(retryAfterMs / 60_000))
     : null;
-}
-
-async function showUpdaterUnavailable(mainWindow) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  await dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Обновления',
-    message: 'Проверка обновлений доступна только в установленной сборке.',
-    detail: isUnpackedBuild()
-      ? 'В каталоге win-unpacked автообновление отключено. Для проверки и установки используй NSIS-версию.'
-      : undefined,
-    buttons: ['ОК'],
-    noLink: true
-  });
-}
-
-async function showCurrentVersionStatus(mainWindow, lastCheck) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-
-  let message = 'Установлена последняя версия.';
-  if (lastCheck.reason === RELEASE_CHECK_REASON.LOCAL_NEWER) {
-    message = 'Установлена актуальная или более новая версия.';
-  } else if (lastCheck.reason === RELEASE_CHECK_REASON.NO_RELEASE) {
-    message = 'Опубликованных обновлений пока нет.';
+  if (error?.code === 'RATE_LIMITED') {
+    return [
+      'GitHub временно ограничил автоматическую проверку.',
+      retryAfterMinutes
+        ? `Повтори её примерно через ${retryAfterMinutes} мин.`
+        : 'Повтори её немного позже.',
+      'Актуальную версию можно скачать вручную на странице последних релизов.'
+    ].join(' ');
   }
-
-  const detail = [
-    `Установленная версия: ${lastCheck.currentVersion ?? app.getVersion()}`,
-    lastCheck.remoteVersion ? `Последний релиз: ${lastCheck.remoteVersion}` : null,
-    getCheckedAtLabel(lastCheck.checkedAt)
-      ? `Проверено: ${getCheckedAtLabel(lastCheck.checkedAt)}`
-      : null
-  ].filter(Boolean).join('\n');
-
-  await dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Обновления',
-    message,
-    detail,
-    buttons: ['ОК'],
-    noLink: true
-  });
-}
-
-async function showManualCheckError(mainWindow, error) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  await dialog.showMessageBox(mainWindow, {
-    type: 'error',
-    title: 'Ошибка обновления',
-    message: 'Не удалось проверить обновления.',
-    detail: error?.message ?? 'Неизвестная ошибка.',
-    buttons: ['ОК'],
-    noLink: true
-  });
+  if (error?.code === 'NETWORK_ERROR') {
+    return 'Не удалось связаться с GitHub. Проверь подключение и попробуй снова.';
+  }
+  if (error?.code === 'TIMEOUT') {
+    return 'GitHub слишком долго отвечает. Попробуй проверить обновления позже.';
+  }
+  return 'Не удалось проверить обновления. Попробуй ещё раз немного позже.';
 }
 
 async function runReleasePreflight() {
+  const now = Date.now();
+  if (releaseCheckBlockedUntil > now) {
+    throw new ReleaseCheckError('GitHub API rate limit is still active.', {
+      code: 'RATE_LIMITED',
+      retryAfterMs: releaseCheckBlockedUntil - now
+    });
+  }
   if (
     latestReleaseResult
-    && Date.now() - latestReleaseCheckedAt <= MANUAL_RELEASE_DETAILS_CACHE_MS
+    && now - latestReleaseCheckedAt <= MANUAL_RELEASE_DETAILS_CACHE_MS
   ) {
     return latestReleaseResult;
   }
@@ -160,11 +149,26 @@ async function runReleasePreflight() {
     try {
       const result = await checkLatestGitHubRelease({
         currentVersion: app.getVersion(),
-        signal: controller.signal
+        signal: controller.signal,
+        etag: latestReleaseEtag
       });
+      if (result.status === RELEASE_CHECK_STATUS.NOT_MODIFIED) {
+        if (!latestReleaseResult) {
+          throw new ReleaseCheckError('GitHub returned an unexpected empty cache response.', {
+            code: 'INVALID_RESPONSE'
+          });
+        }
+        latestReleaseEtag = result.etag ?? latestReleaseEtag;
+        latestReleaseCheckedAt = Date.now();
+        return latestReleaseResult;
+      }
       latestReleaseResult = result;
+      latestReleaseEtag = result.etag ?? latestReleaseEtag;
       latestReleaseCheckedAt = Date.now();
       return result;
+    } catch (error) {
+      rememberRateLimit(error);
+      throw error;
     } finally {
       clearTimeout(timeout);
       if (releaseCheckController === controller) releaseCheckController = null;
@@ -181,30 +185,103 @@ async function runReleasePreflight() {
 
 const MANUAL_RELEASE_DETAILS_CACHE_MS = 5 * 60 * 1000;
 
-export async function getReleaseNotesDetails() {
-  try {
-    const result = await runReleasePreflight();
+async function getInstalledReleaseDetails() {
+  const now = Date.now();
+  if (
+    installedRelease
+    && now - installedReleaseCheckedAt <= MANUAL_RELEASE_DETAILS_CACHE_MS
+  ) {
+    return installedRelease;
+  }
+  if (activeInstalledReleaseTask) return activeInstalledReleaseTask;
+
+  const task = (async () => {
+    if (releaseCheckBlockedUntil > Date.now()) {
+      throw new ReleaseCheckError('GitHub API rate limit is still active.', {
+        code: 'RATE_LIMITED',
+        retryAfterMs: releaseCheckBlockedUntil - Date.now()
+      });
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELEASE_CHECK_TIMEOUT_MS);
+    timeout.unref?.();
+    try {
+      const release = await getGitHubReleaseByTag({
+        version: app.getVersion(),
+        signal: controller.signal
+      });
+      installedRelease = release;
+      installedReleaseCheckedAt = Date.now();
+      return release;
+    } catch (error) {
+      rememberRateLimit(error);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  let trackedTask;
+  trackedTask = task.finally(() => {
+    if (activeInstalledReleaseTask === trackedTask) activeInstalledReleaseTask = null;
+  });
+  activeInstalledReleaseTask = trackedTask;
+  return trackedTask;
+}
+
+export async function getReleaseNotesDetails({ view = 'current' } = {}) {
+  if (!isUpdaterRuntimeSupported()) {
     return {
       currentVersion: app.getVersion(),
+      availableVersion: null,
+      view,
+      status: RELEASE_CHECK_STATUS.ERROR,
+      reason: 'UNSUPPORTED',
+      release: null,
+      releasesUrl: null,
+      error: isUnpackedBuild()
+        ? 'В сборке win-unpacked автообновление отключено. Установи NSIS-версию, чтобы получать обновления в приложении.'
+        : 'Автообновление доступно только в установленной версии приложения.'
+    };
+  }
+
+  try {
+    const result = await runReleasePreflight();
+    const shouldLoadInstalledRelease = view === 'current'
+      && result.remoteVersion !== result.currentVersion;
+    const release = shouldLoadInstalledRelease
+      ? await getInstalledReleaseDetails()
+      : result.release ?? null;
+    return {
+      currentVersion: app.getVersion(),
+      availableVersion: result.status === RELEASE_CHECK_STATUS.UPDATE_AVAILABLE
+        ? result.remoteVersion
+        : null,
+      view,
       status: result.status,
       reason: result.reason,
-      release: result.release ?? null,
+      release,
+      releasesUrl: release?.htmlUrl ?? result.release?.htmlUrl ?? null,
       error: null
     };
   } catch (error) {
     logger.warn('[Updater] Could not load release notes:', error);
+    const retryAfterMs = Number(error?.retryAfterMs);
+    const rateLimited = error?.code === 'RATE_LIMITED';
     return {
       currentVersion: app.getVersion(),
+      availableVersion: null,
+      view,
       status: RELEASE_CHECK_STATUS.ERROR,
       reason: error?.code ?? 'release-notes-failed',
       release: latestReleaseResult?.release ?? null,
-      error: 'Не удалось загрузить описание релиза.'
+      releasesUrl: rateLimited ? GITHUB_RELEASES_PAGE_URL : null,
+      error: getUpdateErrorMessage({ ...error, retryAfterMs })
     };
   }
 }
 
 async function completeNoUpdate(result) {
-  const shouldNotify = updaterState.manual;
   const checkedAt = new Date().toISOString();
   setState({
     type: 'NO_UPDATE',
@@ -218,14 +295,10 @@ async function completeNoUpdate(result) {
     + `latest: ${result.remoteVersion ?? 'none'}, reason: ${result.reason ?? 'unknown'}).`
   );
 
-  if (shouldNotify) {
-    await showCurrentVersionStatus(getMainWindow(), updaterState.lastCheck);
-  }
   return updaterState;
 }
 
 async function recordCheckFailure(error) {
-  const shouldNotify = updaterState.manual;
   const checkedAt = new Date().toISOString();
   setState({
     type: 'ERROR',
@@ -233,10 +306,9 @@ async function recordCheckFailure(error) {
     currentVersion: app.getVersion(),
     remoteVersion: null,
     reason: error?.code ?? 'check-failed',
-    error: error?.message
+    error: getUpdateErrorMessage(error)
   });
   logger.warn('[Updater] Update check failed:', error);
-  if (shouldNotify) await showManualCheckError(getMainWindow(), error);
   return updaterState;
 }
 
@@ -245,18 +317,6 @@ function formatBytes(bytes) {
   const units = ['Б', 'КБ', 'МБ', 'ГБ'];
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${(bytes / (1024 ** exponent)).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
-}
-
-function stripHtml(value) {
-  return String(value ?? '').replace(/<[^>]*>/gu, '').replace(/\s+/gu, ' ').trim();
-}
-
-function getReleaseNotes(info) {
-  if (typeof info.releaseNotes === 'string') return stripHtml(info.releaseNotes);
-  if (Array.isArray(info.releaseNotes)) {
-    return info.releaseNotes.map((entry) => stripHtml(entry?.note)).filter(Boolean).join('\n');
-  }
-  return 'Исправления ошибок и улучшения.';
 }
 
 function clearDownloadProgress() {
@@ -296,8 +356,11 @@ async function startDownload() {
         if (!disposed) setState({ type: 'CANCELLED' });
       } else if (!downloadErrorHandled) {
         logger.error('[Updater] Update download failed:', error);
-        setState({ type: 'ERROR', error: error.message });
-        dialog.showErrorBox('Ошибка обновления', 'Не удалось загрузить обновление.');
+        setState({
+          type: 'ERROR',
+          error: 'Не удалось скачать обновление. Проверь подключение и попробуй снова.'
+        });
+        openUpdateDialog();
       }
       cancellationToken = null;
       downloadCancellationRequested = false;
@@ -358,25 +421,6 @@ async function performUpdateCheck({ manual }) {
   return updaterState;
 }
 
-async function showDownloadedUpdatePrompt() {
-  const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) return updaterState;
-
-  const { response } = await dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Обновление готово',
-    message: 'Перезапустить VK Desktop и установить обновление?',
-    buttons: ['Перезапустить', 'Позже'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true
-  });
-  if (response === 0) {
-    installDownloadedUpdate();
-  }
-  return updaterState;
-}
-
 export function installDownloadedUpdate() {
   if (updaterState.phase !== UPDATE_PHASES.DOWNLOADED) return false;
   logger.info('[Updater] User requested restart and update installation.');
@@ -398,9 +442,15 @@ export function installDownloadedUpdate() {
 async function checkForUpdates({ manual = false } = {}) {
   if (disposed) return updaterState;
 
-  const mainWindow = getMainWindow();
   if (!isUpdaterRuntimeSupported()) {
-    if (manual) await showUpdaterUnavailable(mainWindow);
+    if (manual) {
+      setState({
+        type: 'ERROR',
+        error: isUnpackedBuild()
+          ? 'В сборке win-unpacked автообновление отключено. Установи NSIS-версию.'
+          : 'Автообновление доступно только в установленной версии приложения.'
+      });
+    }
     return updaterState;
   }
 
@@ -414,7 +464,6 @@ async function checkForUpdates({ manual = false } = {}) {
   }
 
   if (updaterState.phase === UPDATE_PHASES.DOWNLOADED) {
-    if (manual) await showDownloadedUpdatePrompt();
     return updaterState;
   }
 
@@ -427,7 +476,6 @@ async function checkForUpdates({ manual = false } = {}) {
   }
 
   if (manual && isFreshCurrentCheck(updaterState.lastCheck)) {
-    await showCurrentVersionStatus(mainWindow, updaterState.lastCheck);
     return updaterState;
   }
 
@@ -440,7 +488,7 @@ async function checkForUpdates({ manual = false } = {}) {
   return trackedTask;
 }
 
-async function onUpdateAvailable(info) {
+function onUpdateAvailable(info) {
   latestUpdateInfo = info;
   setState({
     type: 'UPDATE_AVAILABLE',
@@ -450,34 +498,8 @@ async function onUpdateAvailable(info) {
     reason: RELEASE_CHECK_REASON.REMOTE_NEWER
   });
 
-  if (updatePromptPromise) return updatePromptPromise;
-
-  const mainWindow = getMainWindow();
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return updaterState;
-  }
-
-  const promptTask = (async () => {
-    const { response } = await dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Обновление',
-      message: `Доступна версия ${info.version}`,
-      detail: getReleaseNotes(info).slice(0, 4000),
-      buttons: ['Скачать', 'Позже'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true
-    });
-    if (disposed) return updaterState;
-    if (response === 0) await startDownload();
-    return updaterState;
-  });
-  updatePromptPromise = promptTask();
-  try {
-    return await updatePromptPromise;
-  } finally {
-    updatePromptPromise = null;
-  }
+  openUpdateDialog();
+  return updaterState;
 }
 
 function onDownloadProgress(progress) {
@@ -492,14 +514,14 @@ function onDownloadProgress(progress) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(percent / 100);
 }
 
-async function onUpdateDownloaded() {
+function onUpdateDownloaded() {
   if (downloadCancellationRequested || updaterState.phase !== UPDATE_PHASES.DOWNLOADING) return;
   cancellationToken = null;
   downloadCancellationRequested = false;
   downloadErrorHandled = false;
   setState({ type: 'DOWNLOADED' });
   clearDownloadProgress();
-  await showDownloadedUpdatePrompt();
+  openUpdateDialog();
 }
 
 function onUpdateNotAvailable(info) {
@@ -523,17 +545,24 @@ function onUpdaterError(error) {
   if (updaterState.phase === UPDATE_PHASES.DOWNLOADING) {
     downloadErrorHandled = true;
     logger.error('[Updater] Update download failed:', error);
-    setState({ type: 'ERROR', error: error?.message });
+    setState({
+      type: 'ERROR',
+      error: 'Не удалось скачать обновление. Проверь подключение и попробуй снова.'
+    });
     cancellationToken = null;
     clearDownloadProgress();
-    dialog.showErrorBox('Ошибка обновления', 'Не удалось загрузить обновление.');
+    openUpdateDialog();
     return;
   }
 
   if (updaterState.phase === UPDATE_PHASES.DOWNLOADED) {
     app.isQuitting = false;
     logger.error('[Updater] Could not start the downloaded update installer:', error);
-    dialog.showErrorBox('Ошибка обновления', 'Не удалось запустить установщик обновления.');
+    setState({
+      type: 'ERROR',
+      error: 'Не удалось запустить установщик обновления. Попробуй скачать релиз вручную.'
+    });
+    openUpdateDialog();
     return;
   }
 
@@ -567,6 +596,7 @@ export function initAutoUpdater(windowOrProvider) {
 export function manualCheck(mainWindow) {
   if (mainWindow) getMainWindow = () => mainWindow;
   if (!initialized) initAutoUpdater(getMainWindow);
+  openUpdateDialog();
   return checkForUpdates({ manual: true });
 }
 
@@ -595,10 +625,14 @@ export async function disposeAutoUpdater() {
   autoUpdater.removeListener('error', onUpdaterError);
   activeCheckTask = null;
   activeReleaseCheckTask = null;
+  activeInstalledReleaseTask = null;
   latestUpdateInfo = null;
   latestReleaseResult = null;
   latestReleaseCheckedAt = 0;
-  updatePromptPromise = null;
+  latestReleaseEtag = null;
+  releaseCheckBlockedUntil = 0;
+  installedRelease = null;
+  installedReleaseCheckedAt = 0;
   checkErrorHandled = false;
   setState({ type: 'CLEAR' });
   initialized = false;

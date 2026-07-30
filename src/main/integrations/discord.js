@@ -3,8 +3,13 @@ import { parseTrack, validateCoverUrl } from '../utils/trackParser.js';
 
 const CLIENT_ID = '1437127619069087814';
 const ACTIVITY_TYPE_LISTENING = 2;
-const RECONNECT_DELAYS_MS = Object.freeze([3000, 5000, 10000, 20000, 30000, 60000]);
 const CONNECTION_TIMEOUT_MS = 10000;
+const RECONNECT_DELAYS_MS = Object.freeze([3000, 5000, 10000, 20000, 30000, 60000]);
+const DEBUG_VK_RPC = false;
+
+function debugLog(...args) {
+  if (DEBUG_VK_RPC) console.debug('[VK RPC]', ...args);
+}
 
 function delayReject(milliseconds, message) {
   return new Promise((_resolve, reject) => {
@@ -13,17 +18,91 @@ function delayReject(milliseconds, message) {
   });
 }
 
-function createActivityHash(data, title, artist, cover) {
+function limitText(value, maximum = 128, fallback = '') {
+  return String(value ?? '').replace(/\s+/gu, ' ').trim().slice(0, maximum) || fallback;
+}
+
+function isPublicVkUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && ['vk.com', 'vk.ru', 'm.vk.com', 'm.vk.ru'].includes(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function getTrackIdentity(track) {
+  if (track.trackOwnerId !== null && track.trackOwnerId !== undefined && track.trackId !== null && track.trackId !== undefined) {
+    return `${track.trackOwnerId}_${track.trackId}`;
+  }
+  return `${limitText(track.artist).toLocaleLowerCase('ru-RU')}|${limitText(track.title).toLocaleLowerCase('ru-RU')}|${Math.round(Number(track.duration) || 0)}`;
+}
+
+export function createActivityFingerprint(track) {
   return JSON.stringify([
-    data.active,
-    data.url,
-    title,
-    artist,
-    data.album,
-    cover,
-    data.isPlaying,
-    data.reason === 'seek' ? Math.round(data.progress) : null
+    getTrackIdentity(track),
+    Boolean(track.paused),
+    Math.round(Number(track.position) || 0),
+    track.releaseTitle ?? null,
+    track.releaseUrl ?? null,
+    track.trackUrl ?? null,
+    track.artistUrl ?? null,
+    track.artwork ?? null
   ]);
+}
+
+export function shouldSendActivity(lastFingerprint, track) {
+  return createActivityFingerprint(track) !== lastFingerprint;
+}
+
+export function buildDiscordActivity(track, now = Date.now()) {
+  const parsed = parseTrack(track.title, track.artist);
+  const title = limitText(parsed.title, 128, 'Неизвестный трек');
+  const artist = limitText(parsed.artist, 128, 'Неизвестный исполнитель');
+  const trackUrl = isPublicVkUrl(track.trackUrl) ? track.trackUrl : null;
+  const artistUrl = isPublicVkUrl(track.artistUrl) ? track.artistUrl : null;
+  const releaseUrl = isPublicVkUrl(track.releaseUrl) ? track.releaseUrl : null;
+  const artwork = validateCoverUrl(track.artwork) || null;
+  const releaseTitle = limitText(track.releaseTitle, 128);
+  const activity = {
+    type: ACTIVITY_TYPE_LISTENING,
+    details: title,
+    state: artist,
+    instance: false,
+    largeImageKey: artwork || 'logo',
+    largeImageText: releaseTitle || title
+  };
+
+  if (trackUrl) activity.detailsUrl = trackUrl;
+  if (artistUrl) activity.stateUrl = artistUrl;
+  if (releaseUrl || trackUrl) activity.largeImageUrl = releaseUrl ?? trackUrl;
+  if (releaseUrl) activity.buttons = [{ label: 'Открыть релиз', url: releaseUrl }];
+
+  const duration = Number(track.duration);
+  const position = Number(track.position);
+  if (
+    track.paused !== true
+    && Number.isFinite(duration)
+    && duration > 0
+    && Number.isFinite(position)
+    && position >= 0
+  ) {
+    const boundedPosition = Math.min(position, duration);
+    const startTimestamp = Math.floor(now - boundedPosition * 1000);
+    const endTimestamp = Math.floor(startTimestamp + duration * 1000);
+    if (Number.isSafeInteger(startTimestamp) && Number.isSafeInteger(endTimestamp) && endTimestamp > startTimestamp) {
+      activity.startTimestamp = startTimestamp;
+      activity.endTimestamp = endTimestamp;
+    }
+  } else {
+    activity.smallImageKey = 'pause';
+    activity.smallImageText = 'На паузе';
+  }
+
+  return activity;
 }
 
 class DiscordManager {
@@ -34,7 +113,8 @@ class DiscordManager {
     this.reconnectTimer = null;
     this.retryCount = 0;
     this.isDestroyed = false;
-    this.lastActivityHash = '';
+    this.lastActivityFingerprint = '';
+    this.latestData = null;
     this.updateQueue = Promise.resolve();
   }
 
@@ -54,12 +134,15 @@ class DiscordManager {
         this.isConnected = true;
         this.isConnecting = false;
         this.retryCount = 0;
+        this.lastActivityFingerprint = '';
         console.log('[Discord] Connected');
+        if (this.latestData) void this.update(this.latestData);
       });
       client.on('disconnected', () => {
         if (client !== this.client) return;
         this.isConnected = false;
         this.isConnecting = false;
+        this.lastActivityFingerprint = '';
         this.#scheduleReconnect();
       });
 
@@ -91,65 +174,43 @@ class DiscordManager {
   }
 
   async #clearActivity() {
-    if (this.lastActivityHash === 'inactive') return;
+    if (this.lastActivityFingerprint === 'inactive') return;
     await this.client?.user?.clearActivity().catch(() => undefined);
-    this.lastActivityHash = 'inactive';
+    this.lastActivityFingerprint = 'inactive';
   }
 
-  async #updateNow(data) {
-    if (this.isDestroyed) return;
-    if (!data?.active) {
+  async #updateNow(track) {
+    if (this.isDestroyed) return false;
+    if (!track?.active) {
       await this.#clearActivity();
-      return;
+      return true;
     }
 
     if (!this.isConnected) {
       await this.connect();
-      if (!this.isConnected) return;
+      if (!this.isConnected) return false;
     }
 
-    let { title, artist } = parseTrack(data.title, data.artist);
-    title = title.slice(0, 128);
-    artist = artist.slice(0, 128);
-    if (title.length < 2) title += ' ';
-    if (artist.length < 2) artist += ' ';
-
-    const cover = validateCoverUrl(data.cover) || '';
-    const activityHash = createActivityHash(data, title, artist, cover);
-    if (activityHash === this.lastActivityHash) return;
-
-    const activity = {
-      type: ACTIVITY_TYPE_LISTENING,
-      details: title,
-      state: `by ${artist}`,
-      largeImageKey: cover || 'logo',
-      largeImageText: data.album || 'VK Desktop',
-      buttons: [{ label: 'Слушать в VK', url: data.url }],
-      instance: false
-    };
-
-    if (cover) activity.smallImageKey = data.isPlaying ? 'logo' : 'pause';
-    if (data.isPlaying && data.duration > 0) {
-      const startTimestamp = Date.now() - data.progress * 1000;
-      activity.startTimestamp = Math.floor(startTimestamp);
-      activity.endTimestamp = Math.floor(startTimestamp + data.duration * 1000);
-    } else {
-      activity.smallImageKey = 'pause';
-      activity.smallImageText = 'Paused';
-    }
+    const fingerprint = createActivityFingerprint(track);
+    if (!shouldSendActivity(this.lastActivityFingerprint, track)) return false;
+    const activity = buildDiscordActivity(track);
 
     try {
       await this.client?.user?.setActivity(activity);
-      this.lastActivityHash = activityHash;
+      this.lastActivityFingerprint = fingerprint;
+      debugLog('activity sent', activity);
+      return true;
     } catch (error) {
       console.warn('[Discord] Activity update failed:', error.message);
+      return false;
     }
   }
 
-  update(data) {
+  update(track) {
+    this.latestData = track;
     this.updateQueue = this.updateQueue
       .catch(() => undefined)
-      .then(() => this.#updateNow(data));
+      .then(() => this.#updateNow(track));
     return this.updateQueue;
   }
 
@@ -164,7 +225,7 @@ class DiscordManager {
     this.client = null;
     this.isConnected = false;
     this.isConnecting = false;
-    this.lastActivityHash = '';
+    this.lastActivityFingerprint = '';
   }
 
   getStatus() {
@@ -184,9 +245,9 @@ export const enableRPC = () => {
   enabled = true;
   return getInstance().connect();
 };
-export const updateActivity = (data) => {
+export const updateActivity = (track) => {
   if (!enabled || !instance || instance.isDestroyed) return Promise.resolve(false);
-  return instance.update(data);
+  return instance.update(track);
 };
 export const getStatus = () => instance?.getStatus() ?? { isConnected: false, isConnecting: false };
 export const disableRPC = async () => {

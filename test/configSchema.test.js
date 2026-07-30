@@ -14,6 +14,7 @@ test('sanitizes invalid fields independently and strips unknown keys', () => {
     minimizeToTray: false,
     enableDiscord: 'yes',
     enableVKNext: true,
+    safeGraphics: true,
     injected: 'drop-me'
   });
 
@@ -24,6 +25,7 @@ test('sanitizes invalid fields independently and strips unknown keys', () => {
     minimizeToTray: false,
     enableDiscord: DEFAULT_CONFIG.enableDiscord,
     enableVKNext: true,
+    safeGraphics: true,
     windowState: {}
   });
   assert.equal('injected' in result, false);

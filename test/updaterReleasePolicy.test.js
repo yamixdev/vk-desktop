@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
   checkLatestGitHubRelease,
   compareReleaseVersions,
+  getGitHubReleaseByTag,
+  getRateLimitDelayMs,
+  GITHUB_RELEASES_PAGE_URL,
   isFreshCurrentCheck,
   RELEASE_CHECK_REASON,
   RELEASE_CHECK_STATUS
@@ -79,6 +82,84 @@ test('reads and compares the latest GitHub release tag', async () => {
     publishedAt: '2026-07-18T12:00:00.000Z'
   });
   assert.equal(request.options.headers['User-Agent'], 'VK-Desktop-Updater');
+});
+
+test('reads the installed release by its GitHub tag', async () => {
+  let requestUrl;
+  const release = await getGitHubReleaseByTag({
+    version: '1.2.0',
+    fetchImpl: async (url) => {
+      requestUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          tag_name: 'v1.2.0',
+          name: 'VK Desktop 1.2.0',
+          body: '## Изменения\n\n- Готово',
+          html_url: 'https://github.com/yamixdev/vk-desktop/releases/tag/v1.2.0',
+          published_at: '2026-07-24T12:00:00.000Z'
+        })
+      };
+    }
+  });
+
+  assert.match(requestUrl, /\/releases\/tags\/v1\.2\.0$/u);
+  assert.equal(release.tagName, 'v1.2.0');
+  assert.equal(release.version, '1.2.0');
+});
+
+test('uses a cached ETag and accepts a not-modified response', async () => {
+  let request;
+  const result = await checkLatestGitHubRelease({
+    currentVersion: '1.2.0',
+    etag: '"release-etag"',
+    fetchImpl: async (_url, options) => {
+      request = options;
+      return {
+        ok: false,
+        status: 304,
+        headers: new Headers({ etag: '"release-etag"' })
+      };
+    }
+  });
+
+  assert.equal(request.headers['If-None-Match'], '"release-etag"');
+  assert.deepEqual(result, {
+    status: RELEASE_CHECK_STATUS.NOT_MODIFIED,
+    etag: '"release-etag"'
+  });
+});
+
+test('turns GitHub rate-limit headers into a cooldown', async () => {
+  assert.equal(
+    GITHUB_RELEASES_PAGE_URL,
+    'https://github.com/yamixdev/vk-desktop/releases/latest'
+  );
+  const now = Date.parse('2026-07-30T12:00:00.000Z');
+  const response = {
+    headers: new Headers({ 'retry-after': '120' })
+  };
+  assert.equal(getRateLimitDelayMs(response, { now }), 120_000);
+  assert.equal(getRateLimitDelayMs({
+    headers: new Headers({
+      'x-ratelimit-remaining': '0',
+      'x-ratelimit-reset': String(Math.floor((now + 90_000) / 1000))
+    })
+  }, { now }), 90_000);
+
+  await assert.rejects(
+    checkLatestGitHubRelease({
+      currentVersion: '1.2.0',
+      now,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'retry-after': '120' })
+      })
+    }),
+    (error) => error.code === 'RATE_LIMITED' && error.retryAfterMs === 120_000
+  );
 });
 
 test('turns network and malformed-version failures into typed errors', async () => {

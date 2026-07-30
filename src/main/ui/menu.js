@@ -40,6 +40,28 @@ export function createApplicationMenu(mainWindow, configManager, services = {}) 
     void navigateMainWindow(mainWindow, route, domain).catch(showActionError);
   };
 
+  const restartWithGraphicsMode = async (safeGraphics) => {
+    const modeName = safeGraphics ? 'безопасном' : 'обычном';
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Перезапустить клиент?',
+      message: `Клиент перезапустится в ${modeName} графическом режиме.`,
+      detail: safeGraphics
+        ? 'Аппаратное ускорение будет отключено, пока его не включат обратно через это же меню. Это может устранить чёрные или прозрачные области окна, но повысить нагрузку на процессор.'
+        : 'Аппаратное ускорение снова будет включено.',
+      buttons: ['Перезапустить', 'Отмена'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+    if (response !== 0) return;
+    try {
+      await services.onRestartWithGraphicsMode?.(safeGraphics);
+    } catch (error) {
+      showActionError(error);
+    }
+  };
+
   const settingsSubmenu = [
     {
       label: 'Статус Discord (RPC)',
@@ -139,6 +161,13 @@ export function createApplicationMenu(mainWindow, configManager, services = {}) 
           click: () => { void updateConfig({ profile: 'powersave' }); }
         }
       ]
+    },
+    { type: 'separator' },
+    {
+      label: services.safeGraphics
+        ? 'Включить аппаратное ускорение и перезапустить'
+        : 'Отключить аппаратное ускорение и перезапустить',
+      click: () => { void restartWithGraphicsMode(!services.safeGraphics); }
     }
   ];
 
@@ -267,6 +296,7 @@ export function createApplicationMenu(mainWindow, configManager, services = {}) 
     { type: 'separator' },
     { ...settingsSubmenu[4] },
     { ...settingsSubmenu[6] },
+    { ...settingsSubmenu[8] },
     { type: 'separator' },
     { label: 'Проверить обновления', click: () => manualCheck(mainWindow) },
     { label: 'О программе', click: showAbout },

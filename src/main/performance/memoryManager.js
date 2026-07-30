@@ -65,7 +65,7 @@ export class SmartMemoryManager {
   }
 
   updateMediaState(state) {
-    this.mediaPlaying = state?.isPlaying === true;
+    this.mediaPlaying = state?.paused === false;
   }
 
   async check() {

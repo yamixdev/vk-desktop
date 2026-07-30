@@ -2,6 +2,7 @@ import { app, dialog, ipcMain, Menu } from 'electron';
 import logger from 'electron-log';
 import ConfigManager from './config/manager.js';
 import VKNextManager from './extensions/vkNextManager.js';
+import { getStoredSafeGraphicsPreference } from './graphicsMode.js';
 import { registerMainIpc } from './ipc.js';
 import { SmartMemoryManager } from './performance/memoryManager.js';
 import { PerformanceRecorder } from './performance/recorder.js';
@@ -17,6 +18,15 @@ import { APP_ROUTES, navigateMainWindow } from './window/navigation.js';
 
 const APP_ID = 'com.yamixdev.vkdesktop';
 const runtimeOptions = parseRuntimeOptions();
+const safeGraphicsEnabled = runtimeOptions.safeGraphics
+  || getStoredSafeGraphicsPreference(app.getPath('userData'));
+
+if (safeGraphicsEnabled) {
+  // This must run before the ready event. It is an opt-in fallback for GPUs or
+  // drivers that lose the Chromium compositing surface while the renderer works.
+  app.disableHardwareAcceleration();
+  logger.warn('[GPU] Safe graphics mode is enabled.');
+}
 
 registerAppScheme();
 
@@ -33,6 +43,7 @@ let discordStartupTimer = null;
 let performanceRecorder = null;
 let memoryManager = null;
 let quitReason = null;
+let gpuRecoveryPrompted = false;
 
 app.setAppUserModelId(APP_ID);
 app.isQuitting = false;
@@ -103,9 +114,21 @@ function openVKNextSettings() {
   }
 }
 
+async function restartWithGraphicsMode(safeGraphics) {
+  if (!configManager) throw new Error('Настройки приложения ещё не готовы');
+  await configManager.update({ safeGraphics });
+  await configManager.flush();
+  const args = process.argv.slice(1).filter((argument) => argument !== '--safe-graphics');
+  logger.info(`[GPU] Restart requested with ${safeGraphics ? 'safe' : 'hardware'} graphics.`);
+  app.relaunch({ args });
+  app.quit();
+}
+
 const menuServices = {
   onToggleVKNext: setVKNextEnabled,
-  onOpenVKNextSettings: openVKNextSettings
+  onOpenVKNextSettings: openVKNextSettings,
+  onRestartWithGraphicsMode: restartWithGraphicsMode,
+  safeGraphics: safeGraphicsEnabled
 };
 
 function getRelevantUiConfig(config) {
@@ -327,6 +350,33 @@ if (!gotSingleInstanceLock) {
   });
   app.on('child-process-gone', (_event, details) => {
     logger.warn('[Lifecycle] Child process gone:', details);
+    if (
+      gpuRecoveryPrompted
+      || safeGraphicsEnabled
+      || String(details.type).toLowerCase() !== 'gpu'
+      || !mainWindow
+      || mainWindow.isDestroyed()
+    ) return;
+
+    gpuRecoveryPrompted = true;
+    void dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Проблема с графикой',
+      message: 'Процесс графики Electron завершился.',
+      detail: 'Можно перезапустить клиент в безопасном графическом режиме. Он отключит аппаратное ускорение, пока пользователь сам не включит его обратно.',
+      buttons: ['Перезапустить безопасно', 'Позже'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    }).then(({ response }) => {
+      if (response === 0) {
+        return restartWithGraphicsMode(true).catch((error) => {
+          logger.error('[GPU] Failed to restart in safe graphics mode:', error);
+          dialog.showErrorBox('VK Desktop', `Не удалось сохранить графический режим:\n${error.message}`);
+        });
+      }
+      return undefined;
+    }).catch((error) => logger.warn('[GPU] Failed to show recovery prompt:', error));
   });
   app.on('window-all-closed', () => {
     rememberQuitReason('all-windows-closed');

@@ -10,6 +10,16 @@ const HttpsUrlSchema = z.string().max(4096).refine((value) => {
   }
 }, 'Expected a credential-free HTTPS URL');
 
+const NullableIdentifierSchema = z.union([
+  z.string().trim().min(1).max(128),
+  z.number().finite().int()
+]).nullable();
+const NullableTextSchema = (maximum) => z.string().trim().max(maximum).nullable();
+const NullableVkUrlSchema = z.string().max(4096).refine(
+  isPrivilegedRendererUrl,
+  'Expected a VK URL'
+).nullable();
+
 const InactiveMediaStateSchema = z.object({
   active: z.literal(false),
   reason: z.enum(['initial', 'track', 'playback', 'seek', 'unavailable']).default('unavailable')
@@ -17,21 +27,33 @@ const InactiveMediaStateSchema = z.object({
 
 const ActiveMediaStateSchema = z.object({
   active: z.literal(true),
-  reason: z.enum(['initial', 'track', 'playback', 'seek']),
+  reason: z.enum(['initial', 'track', 'playback', 'seek', 'metadata']),
   title: z.string().trim().min(1).max(128),
   artist: z.string().trim().max(128).default(''),
-  album: z.string().trim().max(100).default(''),
-  cover: z.union([z.literal(''), HttpsUrlSchema]).default(''),
   duration: z.number().finite().min(0).max(7200),
-  progress: z.number().finite().min(0).max(7200),
-  isPlaying: z.boolean(),
-  url: z.string().max(4096).refine(isPrivilegedRendererUrl, 'Expected a VK track URL')
+  position: z.number().finite().min(0).max(7200),
+  paused: z.boolean(),
+  artwork: z.union([z.literal(null), HttpsUrlSchema]).default(null),
+  contextTitle: NullableTextSchema(100).default(null),
+  contextId: NullableIdentifierSchema.default(null),
+  trackId: NullableIdentifierSchema.default(null),
+  trackOwnerId: NullableIdentifierSchema.default(null),
+  trackAccessKey: NullableTextSchema(256).default(null),
+  trackUrl: NullableVkUrlSchema.default(null),
+  releaseTitle: NullableTextSchema(128).default(null),
+  releaseType: z.enum(['album', 'single', 'ep', 'maxi-single']).nullable().default(null),
+  releaseId: NullableIdentifierSchema.default(null),
+  releaseOwnerId: NullableIdentifierSchema.default(null),
+  releaseUrl: NullableVkUrlSchema.default(null),
+  artistId: NullableIdentifierSchema.default(null),
+  artistDomain: NullableTextSchema(128).default(null),
+  artistUrl: NullableVkUrlSchema.default(null),
 }).strict().superRefine((value, context) => {
-  if (value.duration > 0 && value.progress > value.duration + 5) {
+  if (value.duration > 0 && value.position > value.duration + 5) {
     context.addIssue({
       code: 'custom',
-      path: ['progress'],
-      message: 'Progress cannot exceed duration'
+      path: ['position'],
+      message: 'Position cannot exceed duration'
     });
   }
 });
@@ -72,7 +94,9 @@ export const IPC_CHANNELS = Object.freeze({
   TITLE_BAR_TOGGLE_MAXIMIZE: 'window:titlebar-toggle-maximize',
   TITLE_BAR_CLOSE: 'window:titlebar-close',
   UPDATE_STATE: 'update:state',
+  UPDATE_OPEN_DIALOG: 'update:open-dialog',
   UPDATE_RELEASE_NOTES: 'update:release-notes',
+  UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
   UPDATE_INSTALL: 'update:install',
   UPDATE_PROGRESS: 'update:progress',

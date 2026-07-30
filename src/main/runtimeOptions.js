@@ -6,6 +6,7 @@ export function parseRuntimeOptions(argv = process.argv) {
   return {
     benchmark: argv.includes('--benchmark'),
     benchmarkOutput: outputArgument?.slice('--benchmark-output='.length) || null,
+    safeGraphics: argv.includes('--safe-graphics'),
     vkNextOverride: vkNextValue === 'on' ? true : vkNextValue === 'off' ? false : null
   };
 }
