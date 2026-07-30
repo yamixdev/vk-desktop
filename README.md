@@ -7,7 +7,7 @@
 <img src="assets/vk_logo.png" alt="VK Desktop by yamixdev" width="900">
 
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4?logo=windows11&logoColor=white)
-![Electron 43.1.1](https://img.shields.io/badge/Electron-43.1.1-47848F?logo=electron&logoColor=white)
+![Electron 43.2.0](https://img.shields.io/badge/Electron-43.2.0-47848F?logo=electron&logoColor=white)
 ![License: Proprietary](https://img.shields.io/badge/license-proprietary-C62828)
 
 Неофициальный клиент VK для Windows. Проект объединяет веб-интерфейс VK,
@@ -62,7 +62,7 @@ VK Next является сторонним компонентом. Права �
 
 ## Сборка из исходников
 
-Понадобятся Windows x64, Node.js 26 и npm 11.
+Понадобятся Windows x64, Node.js 24 и npm 11.
 
 ```powershell
 git clone https://github.com/yamixdev/vk-desktop.git

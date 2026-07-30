@@ -1,6 +1,6 @@
 {
   "name": "vk-desktop",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -87,9 +87,11 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "deleteAppDataOnUninstall": true
+      "deleteAppDataOnUninstall": false
     },
     "publish": [
       {

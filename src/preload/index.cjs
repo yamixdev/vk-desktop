@@ -626,7 +626,6 @@ function initializeTitleBarBridge() {
   function closeReleaseDialog() {
     if (!releaseDialog || releaseDialog.hidden) return;
     releaseRequestId += 1;
-    if (typeof releaseDialog.close === 'function' && releaseDialog.open) releaseDialog.close();
     releaseDialog.hidden = true;
     if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
       previousFocus.focus({ preventScroll: true });
@@ -778,12 +777,9 @@ function initializeTitleBarBridge() {
 
   async function openReleaseDialog({ view = 'current' } = {}) {
     if (!releaseDialog) return;
-    if (releaseDialog.hidden || !releaseDialog.open) previousFocus = document.activeElement;
+    if (releaseDialog.hidden) previousFocus = document.activeElement;
     releaseDialogView = view === 'update' ? 'update' : 'current';
     releaseDialog.hidden = false;
-    if (typeof releaseDialog.showModal === 'function' && !releaseDialog.open) {
-      releaseDialog.showModal();
-    }
     setReleaseDialogLoading();
     releaseDialogClose.focus({ preventScroll: true });
     const requestId = ++releaseRequestId;
@@ -819,9 +815,11 @@ function initializeTitleBarBridge() {
   }
 
   function createReleaseDialog() {
-    releaseDialog = document.createElement('dialog');
+    releaseDialog = document.createElement('div');
     releaseDialog.className = 'vk-desktop-release';
     releaseDialog.hidden = true;
+    releaseDialog.setAttribute('role', 'dialog');
+    releaseDialog.setAttribute('aria-modal', 'true');
     releaseDialog.setAttribute('aria-labelledby', 'vk-desktop-release-title');
     releaseDialog.setAttribute('aria-describedby', 'vk-desktop-release-status');
 

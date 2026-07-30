@@ -393,7 +393,7 @@
   --vk-desktop-release-muted: #6d7885;
   --vk-desktop-release-border: rgb(0 0 0 / 10%);
   align-items: center;
-  background: transparent;
+  background: rgb(0 0 0 / 42%);
   border: 0;
   color: var(--vk-desktop-release-fg);
   display: flex;
@@ -409,6 +409,7 @@
   padding: 28px;
   position: fixed;
   width: 100vw;
+  z-index: 2147483647;
 }
 
 .vk-desktop-release[data-theme="dark"] {
@@ -417,13 +418,6 @@
   --vk-desktop-release-fg: #f2f3f5;
   --vk-desktop-release-muted: #aeb7c2;
   --vk-desktop-release-border: rgb(255 255 255 / 12%);
-}
-
-.vk-desktop-release::backdrop {
-  background: rgb(0 0 0 / 42%);
-}
-
-.vk-desktop-release[data-theme="dark"]::backdrop {
   background: rgb(0 0 0 / 64%);
 }
 
@@ -465,6 +459,10 @@
   letter-spacing: -0.02em;
   line-height: 1.2;
   margin: 0;
+}
+
+.vk-desktop-release[data-theme="dark"] .vk-desktop-release__header h2 {
+  color: #fff !important;
 }
 
 .vk-desktop-release__meta {
