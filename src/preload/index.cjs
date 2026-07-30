@@ -230,12 +230,16 @@ function isMarkdownTableDivider(line) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/u.test(cell));
 }
 
-function renderSafeMarkdown(container, markdown) {
+function renderSafeMarkdown(container, markdown, { skipLeadingHeading = null } = {}) {
   container.replaceChildren();
   const lines = String(markdown ?? '').slice(0, 100_000).split(/\r?\n/u);
   let currentList = null;
   let currentParagraph = null;
   let codeLines = null;
+  let canSkipLeadingHeading = Boolean(skipLeadingHeading);
+  const normalizedHeadingToSkip = String(skipLeadingHeading ?? '')
+    .trim()
+    .toLocaleLowerCase('ru-RU');
 
   const resetFlow = () => {
     currentList = null;
@@ -306,6 +310,12 @@ function renderSafeMarkdown(container, markdown) {
 
     const heading = line.match(/^(#{1,4})\s+(.+)$/u);
     if (heading) {
+      const normalizedHeading = heading[2].trim().toLocaleLowerCase('ru-RU');
+      if (canSkipLeadingHeading && normalizedHeading === normalizedHeadingToSkip) {
+        canSkipLeadingHeading = false;
+        continue;
+      }
+      canSkipLeadingHeading = false;
       resetFlow();
       const element = document.createElement(`h${Math.min(heading[1].length + 1, 4)}`);
       appendInlineMarkdown(element, heading[2]);
@@ -315,7 +325,10 @@ function renderSafeMarkdown(container, markdown) {
 
     if (/^\s*(?:-{3,}|\*{3,})\s*$/u.test(line)) {
       resetFlow();
-      container.append(document.createElement('hr'));
+      const divider = document.createElement('div');
+      divider.className = 'vk-desktop-release__divider';
+      divider.setAttribute('aria-hidden', 'true');
+      container.append(divider);
       continue;
     }
 
@@ -353,6 +366,7 @@ function renderSafeMarkdown(container, markdown) {
       continue;
     }
 
+    canSkipLeadingHeading = false;
     currentList = null;
     if (!currentParagraph) {
       currentParagraph = document.createElement('p');
@@ -449,7 +463,7 @@ function initializeTitleBarBridge() {
   let maximizeButton = null;
   let versionButton = null;
   let versionText = null;
-  let updateDot = null;
+  let updateButton = null;
   let downloadPercent = null;
   let installButton = null;
   let previousFocus = null;
@@ -548,10 +562,13 @@ function initializeTitleBarBridge() {
     releaseDialogAction.dataset.action = '';
     releaseDialogAction.disabled = false;
     releaseDialogDismiss.hidden = false;
-    releaseDialogDismiss.textContent = phase === 'available' || phase === 'downloaded'
+    releaseDialogDismiss.textContent = releaseDialogView === 'update'
+      && (phase === 'available' || phase === 'downloaded')
       ? 'Позже'
       : 'Закрыть';
     releaseDialogDismiss.setAttribute('aria-label', releaseDialogDismiss.textContent);
+
+    if (releaseDialogView !== 'update') return;
 
     if (phase === 'available') {
       releaseDialogAction.textContent = updaterState.availableVersion
@@ -581,21 +598,23 @@ function initializeTitleBarBridge() {
     if (!titleBar || !versionText) return;
     titleBar.dataset.updatePhase = updaterState.phase;
     versionText.textContent = `v${updaterState.currentVersion}`;
-    updateDot.hidden = updaterState.phase !== 'available';
+    updateButton.hidden = updaterState.phase !== 'available' || !updaterState.availableVersion;
     downloadPercent.hidden = updaterState.phase !== 'downloading';
     installButton.hidden = updaterState.phase !== 'downloaded';
+
+    if (!updateButton.hidden) {
+      const label = `Что нового в версии v${updaterState.availableVersion}`;
+      updateButton.title = label;
+      updateButton.setAttribute('aria-label', label);
+    }
 
     if (updaterState.phase === 'downloading') {
       downloadPercent.textContent = `${Math.round(updaterState.progress)}%`;
       versionButton.title = `Скачивание обновления — ${Math.round(updaterState.progress)}% (${updaterState.speed})`;
-    } else if (updaterState.phase === 'available') {
-      versionButton.title = updaterState.availableVersion
-        ? `Доступно обновление v${updaterState.availableVersion}`
-        : 'Доступно обновление';
     } else if (updaterState.phase === 'downloaded') {
       versionButton.title = 'Обновление скачано и готово к установке';
     } else {
-      versionButton.title = 'Открыть список изменений';
+      versionButton.title = `Что нового в VK Desktop v${updaterState.currentVersion}`;
     }
     versionButton.setAttribute(
       'aria-label',
@@ -606,8 +625,9 @@ function initializeTitleBarBridge() {
 
   function closeReleaseDialog() {
     if (!releaseDialog || releaseDialog.hidden) return;
-    releaseDialog.hidden = true;
     releaseRequestId += 1;
+    if (typeof releaseDialog.close === 'function' && releaseDialog.open) releaseDialog.close();
+    releaseDialog.hidden = true;
     if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
       previousFocus.focus({ preventScroll: true });
     }
@@ -616,17 +636,23 @@ function initializeTitleBarBridge() {
 
   function setReleaseDialogLoading() {
     releaseDialogPayload = null;
-    releaseDialogTitle.textContent = 'Проверяем обновления';
+    releaseDialogTitle.textContent = releaseDialogView === 'current'
+      ? `VK Desktop ${updaterState.currentVersion}`
+      : 'Проверяем обновления';
     releaseDialogMeta.textContent = `Установлена версия v${updaterState.currentVersion}`;
     releaseDialogStatus.hidden = false;
-    releaseDialogStatus.textContent = 'Получаем информацию о релизе…';
+    releaseDialogStatus.textContent = releaseDialogView === 'current'
+      ? 'Получаем описание этой версии…'
+      : 'Получаем информацию о релизе…';
     releaseDialogStatus.dataset.state = 'loading';
     releaseDialogExternal.hidden = true;
     releaseDialogVersions.replaceChildren();
     releaseDialogContent.replaceChildren();
     const loading = document.createElement('p');
     loading.className = 'vk-desktop-release__loading';
-    loading.textContent = 'Получаем данные с GitHub.';
+    loading.textContent = releaseDialogView === 'current'
+      ? 'Загружаем список изменений.'
+      : 'Получаем данные с GitHub.';
     releaseDialogContent.append(loading);
     renderReleaseDialogAction();
   }
@@ -646,7 +672,9 @@ function initializeTitleBarBridge() {
     };
 
     releaseDialogVersions.append(makeVersion('Установлено', payload.currentVersion, 'current'));
-    const availableVersion = payload.availableVersion ?? updaterState.availableVersion;
+    const availableVersion = payload.view === 'update'
+      ? payload.availableVersion ?? updaterState.availableVersion
+      : null;
     if (availableVersion) {
       const arrow = document.createElement('span');
       arrow.className = 'vk-desktop-release__version-arrow';
@@ -661,20 +689,23 @@ function initializeTitleBarBridge() {
     const release = payload.release;
     const phase = updaterState.phase;
     const rateLimited = payload.reason === 'RATE_LIMITED';
-    const availableVersion = payload.availableVersion ?? updaterState.availableVersion;
-    if (rateLimited) {
+    const availableVersion = payload.view === 'update'
+      ? payload.availableVersion ?? updaterState.availableVersion
+      : null;
+    if (payload.view === 'update' && rateLimited) {
       releaseDialogTitle.textContent = 'Проверка обновлений приостановлена';
-    } else if (phase === 'checking') {
+    } else if (payload.view === 'update' && phase === 'checking') {
       releaseDialogTitle.textContent = 'Проверяем обновления';
-    } else if (phase === 'downloading') {
+    } else if (payload.view === 'update' && phase === 'downloading') {
       releaseDialogTitle.textContent = 'Скачиваем обновление';
-    } else if (phase === 'downloaded') {
+    } else if (payload.view === 'update' && phase === 'downloaded') {
       releaseDialogTitle.textContent = 'Обновление готово';
     } else if (availableVersion) {
       releaseDialogTitle.textContent = `Доступна версия v${availableVersion}`;
+    } else if (payload.view === 'current') {
+      releaseDialogTitle.textContent = release?.name || `VK Desktop ${payload.currentVersion}`;
     } else {
-      releaseDialogTitle.textContent = release?.name
-        || (release?.tagName ? `Что нового в ${release.tagName}` : 'Что нового');
+      releaseDialogTitle.textContent = 'Обновлений не найдено';
     }
 
     const meta = [`Установлено: v${payload.currentVersion}`];
@@ -692,12 +723,14 @@ function initializeTitleBarBridge() {
     }
     releaseDialogMeta.textContent = meta.join(' · ');
 
-    let statusMessage = payload.error ?? (phase === 'error' ? updaterState.error : null);
-    if (!statusMessage && phase === 'checking') {
+    let statusMessage = payload.error ?? (payload.view === 'update' && phase === 'error'
+      ? updaterState.error
+      : null);
+    if (!statusMessage && payload.view === 'update' && phase === 'checking') {
       statusMessage = 'Проверяем GitHub и сверяем версии.';
-    } else if (!statusMessage && phase === 'downloading') {
+    } else if (!statusMessage && payload.view === 'update' && phase === 'downloading') {
       statusMessage = `Скачано ${Math.round(updaterState.progress)}%${updaterState.speed ? ` · ${updaterState.speed}` : ''}`;
-    } else if (!statusMessage && phase === 'downloaded') {
+    } else if (!statusMessage && payload.view === 'update' && phase === 'downloaded') {
       statusMessage = 'Файл обновления скачан. Можно перезапустить приложение и установить его.';
     } else if (!statusMessage && availableVersion) {
       statusMessage = `У тебя v${payload.currentVersion}. Доступна v${availableVersion}.`;
@@ -705,27 +738,32 @@ function initializeTitleBarBridge() {
       statusMessage = 'Установленная версия новее последнего опубликованного релиза.';
     } else if (!statusMessage && payload.reason === 'no-release') {
       statusMessage = 'Опубликованных релизов пока нет.';
+    } else if (!statusMessage && payload.view === 'current' && !release) {
+      statusMessage = 'Описание этой версии ещё не опубликовано на GitHub.';
     } else if (!statusMessage && payload.view === 'update') {
       statusMessage = 'Установлена актуальная версия.';
     }
     releaseDialogStatus.hidden = !statusMessage;
     releaseDialogStatus.textContent = statusMessage ?? '';
-    releaseDialogStatus.dataset.state = rateLimited || phase === 'error'
+    releaseDialogStatus.dataset.state = (payload.view === 'update' && (rateLimited || phase === 'error'))
       ? 'error'
       : availableVersion
         ? 'available'
-        : phase === 'checking' || phase === 'downloading'
+        : payload.view === 'update' && (phase === 'checking' || phase === 'downloading')
           ? 'loading'
           : 'current';
     renderReleaseDialogVersions(payload);
-    renderSafeMarkdown(releaseDialogContent, release?.body ?? '');
+    renderSafeMarkdown(releaseDialogContent, release?.body ?? '', {
+      skipLeadingHeading: release?.name ?? null
+    });
 
     const externalUrl = rateLimited
       ? payload.releasesUrl
       : release?.htmlUrl ?? payload.releasesUrl;
     if (externalUrl) {
       releaseDialogExternal.href = externalUrl;
-      releaseDialogExternal.textContent = rateLimited
+      const isSpecificRelease = Boolean(release?.htmlUrl);
+      releaseDialogExternal.textContent = rateLimited || !isSpecificRelease
         ? 'Открыть последние релизы ↗'
         : 'Открыть релиз на GitHub ↗';
       releaseDialogExternal.dataset.variant = rateLimited ? 'button' : 'link';
@@ -740,9 +778,12 @@ function initializeTitleBarBridge() {
 
   async function openReleaseDialog({ view = 'current' } = {}) {
     if (!releaseDialog) return;
-    if (releaseDialog.hidden) previousFocus = document.activeElement;
+    if (releaseDialog.hidden || !releaseDialog.open) previousFocus = document.activeElement;
     releaseDialogView = view === 'update' ? 'update' : 'current';
     releaseDialog.hidden = false;
+    if (typeof releaseDialog.showModal === 'function' && !releaseDialog.open) {
+      releaseDialog.showModal();
+    }
     setReleaseDialogLoading();
     releaseDialogClose.focus({ preventScroll: true });
     const requestId = ++releaseRequestId;
@@ -778,17 +819,14 @@ function initializeTitleBarBridge() {
   }
 
   function createReleaseDialog() {
-    releaseDialog = document.createElement('div');
+    releaseDialog = document.createElement('dialog');
     releaseDialog.className = 'vk-desktop-release';
     releaseDialog.hidden = true;
-    releaseDialog.setAttribute('role', 'presentation');
+    releaseDialog.setAttribute('aria-labelledby', 'vk-desktop-release-title');
+    releaseDialog.setAttribute('aria-describedby', 'vk-desktop-release-status');
 
     const card = document.createElement('section');
     card.className = 'vk-desktop-release__card';
-    card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-modal', 'true');
-    card.setAttribute('aria-labelledby', 'vk-desktop-release-title');
-    card.setAttribute('aria-describedby', 'vk-desktop-release-status');
 
     const header = document.createElement('header');
     header.className = 'vk-desktop-release__header';
@@ -853,6 +891,10 @@ function initializeTitleBarBridge() {
     releaseDialog.addEventListener('mousedown', (event) => {
       if (event.target === releaseDialog) closeReleaseDialog();
     });
+    releaseDialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeReleaseDialog();
+    });
     releaseDialogAction.addEventListener('click', () => {
       if (releaseDialogAction.dataset.action === 'download') {
         releaseDialogAction.disabled = true;
@@ -911,14 +953,19 @@ function initializeTitleBarBridge() {
     versionText = document.createElement('span');
     versionText.className = 'vk-desktop-titlebar__version-text';
     versionText.textContent = 'v—';
-    updateDot = document.createElement('span');
-    updateDot.className = 'vk-desktop-titlebar__update-dot';
-    updateDot.hidden = true;
-    updateDot.setAttribute('aria-hidden', 'true');
+    updateButton = createTitleBarButton(
+      'vk-desktop-titlebar__update',
+      'Открыть сведения о доступном обновлении'
+    );
+    updateButton.hidden = true;
+    const updateIcon = document.createElement('span');
+    updateIcon.className = 'vk-desktop-titlebar__update-icon';
+    updateIcon.setAttribute('aria-hidden', 'true');
+    updateButton.append(updateIcon);
     downloadPercent = document.createElement('span');
     downloadPercent.className = 'vk-desktop-titlebar__download-percent';
     downloadPercent.hidden = true;
-    versionButton.append(versionText, updateDot, downloadPercent);
+    versionButton.append(versionText, downloadPercent);
 
     installButton = createTitleBarButton(
       'vk-desktop-titlebar__install',
@@ -929,7 +976,7 @@ function initializeTitleBarBridge() {
     installIcon.className = 'vk-desktop-titlebar__install-icon';
     installIcon.setAttribute('aria-hidden', 'true');
     installButton.append(installIcon);
-    brand.append(logo, title, versionButton, installButton);
+    brand.append(logo, title, versionButton, updateButton, installButton);
 
     const windowControls = document.createElement('div');
     windowControls.className = 'vk-desktop-titlebar__window-controls';
@@ -968,6 +1015,7 @@ function initializeTitleBarBridge() {
     });
     closeButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.TITLE_BAR_CLOSE));
     versionButton.addEventListener('click', () => void openReleaseDialog({ view: 'current' }));
+    updateButton.addEventListener('click', () => void openReleaseDialog({ view: 'update' }));
     installButton.addEventListener('click', () => ipcRenderer.send(CHANNELS.UPDATE_INSTALL));
     document.documentElement.classList.add('vk-desktop-titlebar-active');
     document.body.prepend(titleBar);
@@ -1004,6 +1052,7 @@ function initializeTitleBarBridge() {
     updaterState = nextState;
     renderUpdaterState();
     if (!releaseDialog || releaseDialog.hidden) return;
+    if (releaseDialogView !== 'update') return;
     if (updaterState.phase === 'checking') {
       releaseDialogTitle.textContent = 'Проверяем обновления';
       releaseDialogStatus.hidden = false;

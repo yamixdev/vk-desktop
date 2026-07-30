@@ -26,6 +26,7 @@
   background: var(--vk-desktop-titlebar-bg);
   border-bottom: 1px solid var(--vk-desktop-titlebar-border);
   box-sizing: border-box;
+  contain: layout paint;
   color: var(--vk-desktop-titlebar-fg);
   display: flex;
   font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
@@ -77,6 +78,7 @@
 .vk-desktop-titlebar__window-button,
 .vk-desktop-titlebar__install,
 .vk-desktop-titlebar__version,
+.vk-desktop-titlebar__update,
 .vk-desktop-release__close,
 .vk-desktop-release__dismiss,
 .vk-desktop-release__action {
@@ -113,6 +115,7 @@
 .vk-desktop-titlebar__window-button:focus-visible,
 .vk-desktop-titlebar__version:focus-visible,
 .vk-desktop-titlebar__install:focus-visible,
+.vk-desktop-titlebar__update:focus-visible,
 .vk-desktop-release__close:focus-visible,
 .vk-desktop-release__dismiss:focus-visible,
 .vk-desktop-release__action:focus-visible,
@@ -217,12 +220,38 @@
   color: #2688eb;
 }
 
-.vk-desktop-titlebar__update-dot {
+.vk-desktop-titlebar__update {
   background: #f2b035;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--vk-desktop-titlebar-bg);
-  height: 7px;
-  width: 7px;
+  color: #2b210d;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 22px;
+  width: 22px;
+}
+
+.vk-desktop-titlebar__update:hover {
+  background: #ffc252;
+}
+
+.vk-desktop-titlebar__update-icon {
+  border-bottom: 1.5px solid currentColor;
+  display: block;
+  height: 9px;
+  position: relative;
+  width: 10px;
+}
+
+.vk-desktop-titlebar__update-icon::before {
+  border-bottom: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  content: "";
+  height: 5px;
+  left: 2px;
+  position: absolute;
+  top: -1px;
+  transform: rotate(45deg);
+  width: 5px;
 }
 
 .vk-desktop-titlebar__download-percent {
@@ -365,15 +394,22 @@
   --vk-desktop-release-muted: #6d7885;
   --vk-desktop-release-border: rgb(0 0 0 / 10%);
   align-items: center;
-  background: rgb(0 0 0 / 42%);
+  background: transparent;
+  border: 0;
   color: var(--vk-desktop-release-fg);
   display: flex;
   font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  height: calc(100dvh - var(--vk-desktop-titlebar-height));
   inset: var(--vk-desktop-titlebar-height) 0 0;
   justify-content: center;
+  margin: 0;
+  max-height: none;
+  max-width: none;
+  min-height: 0;
+  outline: 0;
   padding: 28px;
   position: fixed;
-  z-index: 2147483645;
+  width: 100vw;
 }
 
 .vk-desktop-release[data-theme="dark"] {
@@ -382,6 +418,13 @@
   --vk-desktop-release-fg: #f2f3f5;
   --vk-desktop-release-muted: #aeb7c2;
   --vk-desktop-release-border: rgb(255 255 255 / 12%);
+}
+
+.vk-desktop-release::backdrop {
+  background: rgb(0 0 0 / 42%);
+}
+
+.vk-desktop-release[data-theme="dark"]::backdrop {
   background: rgb(0 0 0 / 64%);
 }
 
@@ -389,7 +432,7 @@
   background: var(--vk-desktop-release-bg);
   border: 1px solid var(--vk-desktop-release-border);
   border-radius: 20px;
-  box-shadow: 0 24px 72px rgb(0 0 0 / 32%), 0 2px 10px rgb(0 0 0 / 10%);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 28%), 0 1px 4px rgb(0 0 0 / 12%);
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -537,6 +580,7 @@
   line-height: 1.62;
   min-height: 120px;
   overflow: auto;
+  overflow-wrap: anywhere;
   overscroll-behavior: contain;
   padding: 18px 28px 28px;
   user-select: text;
@@ -687,10 +731,12 @@
   box-shadow: 0 0 0 1px rgb(255 255 255 / 10%);
 }
 
-.vk-desktop-release__markdown hr {
+.vk-desktop-release__divider {
+  background: var(--vk-desktop-release-border);
   border: 0;
-  border-top: 1px solid var(--vk-desktop-release-border);
+  height: 1px;
   margin: 20px 0;
+  width: 100%;
 }
 
 .vk-desktop-release__loading {
@@ -819,22 +865,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .vk-desktop-release__card {
-    animation: vk-desktop-release-enter 120ms ease-out;
-  }
-
-  @keyframes vk-desktop-release-enter {
-    from {
-      opacity: 0;
-      transform: translateY(6px) scale(0.99);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
   @keyframes vk-desktop-release-pulse {
     50% {
       opacity: 0.35;

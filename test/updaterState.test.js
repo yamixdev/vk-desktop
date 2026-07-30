@@ -2,9 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createUpdaterState,
+  getAvailableUpdateVersion,
   transitionUpdaterState,
   UPDATE_PHASES
 } from '../src/main/updater/state.js';
+
+test('does not expose an older remote release as an available update', () => {
+  let state = transitionUpdaterState(createUpdaterState(), { type: 'CHECK_STARTED', manual: false });
+  state = transitionUpdaterState(state, {
+    type: 'NO_UPDATE',
+    currentVersion: '1.2.1',
+    remoteVersion: '1.2.0',
+    reason: 'local-newer'
+  });
+
+  assert.equal(getAvailableUpdateVersion(state, '1.2.0'), null);
+});
+
+test('exposes only a confirmed newer release as an available update', () => {
+  const state = transitionUpdaterState(createUpdaterState(), {
+    type: 'UPDATE_AVAILABLE',
+    currentVersion: '1.2.0',
+    remoteVersion: '1.2.2',
+    reason: 'remote-newer'
+  });
+
+  assert.equal(getAvailableUpdateVersion(state, '1.2.2'), '1.2.2');
+});
 
 test('covers the successful updater lifecycle', () => {
   let state = createUpdaterState();

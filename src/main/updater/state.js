@@ -18,6 +18,15 @@ export function createUpdaterState() {
   };
 }
 
+export function getAvailableUpdateVersion(state, latestVersion = null) {
+  if (state?.lastCheck?.status !== 'update-available') return null;
+
+  const version = typeof latestVersion === 'string' && latestVersion.trim()
+    ? latestVersion.trim()
+    : state.lastCheck.remoteVersion;
+  return typeof version === 'string' && version.trim() ? version.trim() : null;
+}
+
 function createLastCheck(event, status) {
   return {
     status,

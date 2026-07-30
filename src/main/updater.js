@@ -6,11 +6,13 @@ import logger from 'electron-log';
 import { IPC_CHANNELS } from '../shared/ipcSchemas.js';
 import {
   createUpdaterState,
+  getAvailableUpdateVersion,
   transitionUpdaterState,
   UPDATE_PHASES
 } from './updater/state.js';
 import {
   checkLatestGitHubRelease,
+  compareReleaseVersions,
   getGitHubReleaseByTag,
   isFreshCurrentCheck,
   RELEASE_CHECK_REASON,
@@ -68,7 +70,7 @@ export function getUpdaterSnapshot() {
     progress: Math.round(updaterState.progress),
     speed: latestProgress.speed,
     currentVersion: app.getVersion(),
-    availableVersion: latestUpdateInfo?.version ?? updaterState.lastCheck?.remoteVersion ?? null,
+    availableVersion: getAvailableUpdateVersion(updaterState, latestUpdateInfo?.version),
     error: updaterState.phase === UPDATE_PHASES.ERROR ? updaterState.error : null,
     runtimeSupported: isUpdaterRuntimeSupported()
   };
@@ -188,7 +190,7 @@ const MANUAL_RELEASE_DETAILS_CACHE_MS = 5 * 60 * 1000;
 async function getInstalledReleaseDetails() {
   const now = Date.now();
   if (
-    installedRelease
+    installedReleaseCheckedAt
     && now - installedReleaseCheckedAt <= MANUAL_RELEASE_DETAILS_CACHE_MS
   ) {
     return installedRelease;
@@ -246,12 +248,24 @@ export async function getReleaseNotesDetails({ view = 'current' } = {}) {
   }
 
   try {
+    if (view === 'current') {
+      const release = await getInstalledReleaseDetails();
+      return {
+        currentVersion: app.getVersion(),
+        availableVersion: null,
+        view,
+        status: RELEASE_CHECK_STATUS.CURRENT,
+        reason: release ? RELEASE_CHECK_REASON.EQUAL : 'release-not-found',
+        release,
+        releasesUrl: release?.htmlUrl ?? GITHUB_RELEASES_PAGE_URL,
+        error: null
+      };
+    }
+
     const result = await runReleasePreflight();
-    const shouldLoadInstalledRelease = view === 'current'
-      && result.remoteVersion !== result.currentVersion;
-    const release = shouldLoadInstalledRelease
-      ? await getInstalledReleaseDetails()
-      : result.release ?? null;
+    const release = result.status === RELEASE_CHECK_STATUS.UPDATE_AVAILABLE
+      ? result.release ?? null
+      : null;
     return {
       currentVersion: app.getVersion(),
       availableVersion: result.status === RELEASE_CHECK_STATUS.UPDATE_AVAILABLE
@@ -261,7 +275,7 @@ export async function getReleaseNotesDetails({ view = 'current' } = {}) {
       status: result.status,
       reason: result.reason,
       release,
-      releasesUrl: release?.htmlUrl ?? result.release?.htmlUrl ?? null,
+      releasesUrl: release?.htmlUrl ?? GITHUB_RELEASES_PAGE_URL,
       error: null
     };
   } catch (error) {
@@ -489,6 +503,23 @@ async function checkForUpdates({ manual = false } = {}) {
 }
 
 function onUpdateAvailable(info) {
+  let comparison;
+  try {
+    comparison = compareReleaseVersions(app.getVersion(), info?.version);
+  } catch (error) {
+    logger.warn('[Updater] Ignored update with an invalid version:', error);
+    return updaterState;
+  }
+
+  if (comparison.status !== RELEASE_CHECK_STATUS.UPDATE_AVAILABLE) {
+    logger.warn(
+      `[Updater] Ignored non-newer update v${info?.version} for local v${app.getVersion()}.`
+    );
+    latestUpdateInfo = null;
+    if (updaterState.phase === UPDATE_PHASES.CHECKING) void completeNoUpdate(comparison);
+    return updaterState;
+  }
+
   latestUpdateInfo = info;
   setState({
     type: 'UPDATE_AVAILABLE',
@@ -497,8 +528,8 @@ function onUpdateAvailable(info) {
     remoteVersion: info?.version ?? null,
     reason: RELEASE_CHECK_REASON.REMOTE_NEWER
   });
-
-  openUpdateDialog();
+  // Automatic checks only surface the amber title-bar action. A modal is
+  // reserved for an explicit manual check or for the user's click on it.
   return updaterState;
 }
 
