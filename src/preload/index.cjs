@@ -536,6 +536,7 @@ function initializeTitleBarBridge() {
   function scheduleOffsetCheck(delayMs) {
     const timer = setTimeout(() => {
       offsetTimers.delete(timer);
+      updateTheme();
       offsetPageHeader();
     }, delayMs);
     offsetTimers.add(timer);
